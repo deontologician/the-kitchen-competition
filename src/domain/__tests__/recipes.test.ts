@@ -11,6 +11,7 @@ import {
 } from "../recipes";
 import type { RecipeStep, RecipeNode } from "../recipes";
 import { findItem, allItems } from "../items";
+import { itemId } from "../branded";
 
 // ---------------------------------------------------------------------------
 // allRecipes — basic invariants
@@ -107,7 +108,7 @@ describe("item references", () => {
 // ---------------------------------------------------------------------------
 describe("findRecipe", () => {
   it("returns the recipe for a valid id", () => {
-    const recipe = findRecipe("grilled-patty");
+    const recipe = findRecipe(itemId("grilled-patty"));
     expect(recipe).toBeDefined();
     expect(recipe!.name).toBe("Grilled Patty");
     expect(recipe!.method).toBe("cook");
@@ -116,11 +117,11 @@ describe("findRecipe", () => {
   });
 
   it("returns undefined for unknown id", () => {
-    expect(findRecipe("nonexistent")).toBeUndefined();
+    expect(findRecipe(itemId("nonexistent"))).toBeUndefined();
   });
 
   it("finds dish recipes", () => {
-    const recipe = findRecipe("classic-burger");
+    const recipe = findRecipe(itemId("classic-burger"));
     expect(recipe).toBeDefined();
     expect(recipe!.method).toBe("assemble");
   });
@@ -131,17 +132,17 @@ describe("findRecipe", () => {
 // ---------------------------------------------------------------------------
 describe("recipesForOutput", () => {
   it("finds the recipe that produces grilled-patty", () => {
-    const recipes = recipesForOutput("grilled-patty");
+    const recipes = recipesForOutput(itemId("grilled-patty"));
     expect(recipes.length).toBe(1);
     expect(recipes[0].id).toBe("grilled-patty");
   });
 
   it("returns empty for raw items (no recipe produces them)", () => {
-    expect(recipesForOutput("ground-beef").length).toBe(0);
+    expect(recipesForOutput(itemId("ground-beef")).length).toBe(0);
   });
 
   it("returns empty for unknown id", () => {
-    expect(recipesForOutput("nonexistent").length).toBe(0);
+    expect(recipesForOutput(itemId("nonexistent")).length).toBe(0);
   });
 });
 
@@ -150,22 +151,22 @@ describe("recipesForOutput", () => {
 // ---------------------------------------------------------------------------
 describe("resolveRecipeChain", () => {
   it("returns undefined for raw items", () => {
-    expect(resolveRecipeChain("ground-beef")).toBeUndefined();
+    expect(resolveRecipeChain(itemId("ground-beef"))).toBeUndefined();
   });
 
   it("returns undefined for unknown items", () => {
-    expect(resolveRecipeChain("nonexistent")).toBeUndefined();
+    expect(resolveRecipeChain(itemId("nonexistent"))).toBeUndefined();
   });
 
   it("resolves a simple 1-step chain (shredded-lettuce)", () => {
-    const node = resolveRecipeChain("shredded-lettuce");
+    const node = resolveRecipeChain(itemId("shredded-lettuce"));
     expect(node).toBeDefined();
     expect(node!.step.id).toBe("shredded-lettuce");
     expect(node!.children.length).toBe(0); // input is raw
   });
 
   it("resolves a 2-step chain (grilled-patty)", () => {
-    const node = resolveRecipeChain("grilled-patty");
+    const node = resolveRecipeChain(itemId("grilled-patty"));
     expect(node).toBeDefined();
     expect(node!.step.id).toBe("grilled-patty");
     expect(node!.children.length).toBe(1);
@@ -173,7 +174,7 @@ describe("resolveRecipeChain", () => {
   });
 
   it("resolves classic burger with full tree", () => {
-    const node = resolveRecipeChain("classic-burger");
+    const node = resolveRecipeChain(itemId("classic-burger"));
     expect(node).toBeDefined();
     expect(node!.step.id).toBe("classic-burger");
     // classic-burger inputs: bun (raw), grilled-patty (chain), shredded-lettuce (chain), sliced-tomato (chain)
@@ -182,7 +183,7 @@ describe("resolveRecipeChain", () => {
   });
 
   it("resolves the 4-step bbq pulled pork chain", () => {
-    const node = resolveRecipeChain("pulled-pork-sandwich");
+    const node = resolveRecipeChain(itemId("pulled-pork-sandwich"));
     expect(node).toBeDefined();
     // pulled-pork-sandwich → pulled-pork → smoked-pork → seasoned-pork → [raw]
     const pulledPork = node!.children.find(
@@ -201,7 +202,7 @@ describe("resolveRecipeChain", () => {
   });
 
   it("resolves sushi rice chain (multi-input cook)", () => {
-    const node = resolveRecipeChain("sushi-rice");
+    const node = resolveRecipeChain(itemId("sushi-rice"));
     expect(node).toBeDefined();
     expect(node!.step.id).toBe("sushi-rice");
     // inputs: rice + rice-vinegar, both raw → no children
@@ -214,23 +215,23 @@ describe("resolveRecipeChain", () => {
 // ---------------------------------------------------------------------------
 describe("flattenRecipeChain", () => {
   it("returns steps in topological order (leaves first)", () => {
-    const node = resolveRecipeChain("classic-burger")!;
+    const node = resolveRecipeChain(itemId("classic-burger"))!;
     const steps = flattenRecipeChain(node);
     const ids = steps.map((s) => s.id);
 
     // beef-patty must come before grilled-patty
-    expect(ids.indexOf("beef-patty")).toBeLessThan(
-      ids.indexOf("grilled-patty")
+    expect(ids.indexOf(itemId("beef-patty"))).toBeLessThan(
+      ids.indexOf(itemId("grilled-patty"))
     );
     // All intermediates must come before classic-burger
-    expect(ids.indexOf("grilled-patty")).toBeLessThan(
-      ids.indexOf("classic-burger")
+    expect(ids.indexOf(itemId("grilled-patty"))).toBeLessThan(
+      ids.indexOf(itemId("classic-burger"))
     );
-    expect(ids.indexOf("shredded-lettuce")).toBeLessThan(
-      ids.indexOf("classic-burger")
+    expect(ids.indexOf(itemId("shredded-lettuce"))).toBeLessThan(
+      ids.indexOf(itemId("classic-burger"))
     );
-    expect(ids.indexOf("sliced-tomato")).toBeLessThan(
-      ids.indexOf("classic-burger")
+    expect(ids.indexOf(itemId("sliced-tomato"))).toBeLessThan(
+      ids.indexOf(itemId("classic-burger"))
     );
     // classic-burger is last
     expect(ids[ids.length - 1]).toBe("classic-burger");
@@ -239,32 +240,32 @@ describe("flattenRecipeChain", () => {
   it("deduplicates shared steps", () => {
     // grilled-patty is shared between classic-burger and cheeseburger
     // But within a single chain, each step appears once
-    const node = resolveRecipeChain("classic-burger")!;
+    const node = resolveRecipeChain(itemId("classic-burger"))!;
     const steps = flattenRecipeChain(node);
     const ids = steps.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("handles single-step chain", () => {
-    const node = resolveRecipeChain("shredded-lettuce")!;
+    const node = resolveRecipeChain(itemId("shredded-lettuce"))!;
     const steps = flattenRecipeChain(node);
     expect(steps.length).toBe(1);
     expect(steps[0].id).toBe("shredded-lettuce");
   });
 
   it("flattens 4-step bbq chain correctly", () => {
-    const node = resolveRecipeChain("pulled-pork-sandwich")!;
+    const node = resolveRecipeChain(itemId("pulled-pork-sandwich"))!;
     const steps = flattenRecipeChain(node);
     const ids = steps.map((s) => s.id);
     // seasoned-pork → smoked-pork → pulled-pork → coleslaw → pulled-pork-sandwich
-    expect(ids.indexOf("seasoned-pork")).toBeLessThan(
-      ids.indexOf("smoked-pork")
+    expect(ids.indexOf(itemId("seasoned-pork"))).toBeLessThan(
+      ids.indexOf(itemId("smoked-pork"))
     );
-    expect(ids.indexOf("smoked-pork")).toBeLessThan(
-      ids.indexOf("pulled-pork")
+    expect(ids.indexOf(itemId("smoked-pork"))).toBeLessThan(
+      ids.indexOf(itemId("pulled-pork"))
     );
-    expect(ids.indexOf("pulled-pork")).toBeLessThan(
-      ids.indexOf("pulled-pork-sandwich")
+    expect(ids.indexOf(itemId("pulled-pork"))).toBeLessThan(
+      ids.indexOf(itemId("pulled-pork-sandwich"))
     );
   });
 });
@@ -274,7 +275,7 @@ describe("flattenRecipeChain", () => {
 // ---------------------------------------------------------------------------
 describe("totalRawIngredients", () => {
   it("returns only raw items", () => {
-    const node = resolveRecipeChain("classic-burger")!;
+    const node = resolveRecipeChain(itemId("classic-burger"))!;
     const raws = totalRawIngredients(node);
     raws.forEach((ri) => {
       const item = findItem(ri.itemId)!;
@@ -283,7 +284,7 @@ describe("totalRawIngredients", () => {
   });
 
   it("aggregates classic burger raw ingredients", () => {
-    const node = resolveRecipeChain("classic-burger")!;
+    const node = resolveRecipeChain(itemId("classic-burger"))!;
     const raws = totalRawIngredients(node);
     const byId = Object.fromEntries(raws.map((r) => [r.itemId, r.quantity]));
     // bun:1, ground-beef:1, lettuce:1, tomato:1
@@ -294,7 +295,7 @@ describe("totalRawIngredients", () => {
   });
 
   it("aggregates sushi rice raw ingredients", () => {
-    const node = resolveRecipeChain("sushi-rice")!;
+    const node = resolveRecipeChain(itemId("sushi-rice"))!;
     const raws = totalRawIngredients(node);
     const byId = Object.fromEntries(raws.map((r) => [r.itemId, r.quantity]));
     expect(byId["rice"]).toBe(1);
@@ -302,7 +303,7 @@ describe("totalRawIngredients", () => {
   });
 
   it("aggregates pulled pork sandwich raw ingredients", () => {
-    const node = resolveRecipeChain("pulled-pork-sandwich")!;
+    const node = resolveRecipeChain(itemId("pulled-pork-sandwich"))!;
     const raws = totalRawIngredients(node);
     const byId = Object.fromEntries(raws.map((r) => [r.itemId, r.quantity]));
     expect(byId["bun"]).toBe(1);
@@ -316,19 +317,19 @@ describe("totalRawIngredients", () => {
 // ---------------------------------------------------------------------------
 describe("totalRecipeTime", () => {
   it("sums all step times for classic burger", () => {
-    const node = resolveRecipeChain("classic-burger")!;
+    const node = resolveRecipeChain(itemId("classic-burger"))!;
     // beef-patty 3s + grilled-patty 5s + shredded-lettuce 2s + sliced-tomato 2s + assemble 0s = 12s
     expect(totalRecipeTime(node)).toBe(12_000);
   });
 
   it("sums all step times for pulled pork sandwich", () => {
-    const node = resolveRecipeChain("pulled-pork-sandwich")!;
+    const node = resolveRecipeChain(itemId("pulled-pork-sandwich"))!;
     // seasoned-pork 3s + smoked-pork 8s + pulled-pork 3s + coleslaw 4s + assemble 0s = 18s
     expect(totalRecipeTime(node)).toBe(18_000);
   });
 
   it("single step has just its own time", () => {
-    const node = resolveRecipeChain("shredded-lettuce")!;
+    const node = resolveRecipeChain(itemId("shredded-lettuce"))!;
     expect(totalRecipeTime(node)).toBe(2000);
   });
 });
@@ -338,14 +339,14 @@ describe("totalRecipeTime", () => {
 // ---------------------------------------------------------------------------
 describe("spot checks", () => {
   it("miso soup is a cook recipe (not assemble)", () => {
-    const recipe = findRecipe("miso-soup");
+    const recipe = findRecipe(itemId("miso-soup"));
     expect(recipe).toBeDefined();
     expect(recipe!.method).toBe("cook");
     expect(recipe!.timeMs).toBe(5000);
   });
 
   it("sushi rice requires rice + rice-vinegar", () => {
-    const recipe = findRecipe("sushi-rice");
+    const recipe = findRecipe(itemId("sushi-rice"));
     expect(recipe).toBeDefined();
     expect(recipe!.inputs).toEqual([
       { itemId: "rice", quantity: 1 },
@@ -354,7 +355,7 @@ describe("spot checks", () => {
   });
 
   it("bacon cheeseburger has 5 inputs", () => {
-    const recipe = findRecipe("bacon-cheeseburger");
+    const recipe = findRecipe(itemId("bacon-cheeseburger"));
     expect(recipe).toBeDefined();
     expect(recipe!.inputs.length).toBe(5);
   });

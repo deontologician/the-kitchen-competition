@@ -1,17 +1,18 @@
+import { type ItemId, itemId as toItemId } from "./branded";
 import { findItem } from "./items";
 
 export type RecipeMethod = "prep" | "cook" | "assemble";
 
 export interface RecipeInput {
-  readonly itemId: string;
+  readonly itemId: ItemId;
   readonly quantity: number;
 }
 
 export interface RecipeStep {
-  readonly id: string;
+  readonly id: ItemId;
   readonly name: string;
   readonly inputs: ReadonlyArray<RecipeInput>;
-  readonly output: string;
+  readonly output: ItemId;
   readonly method: RecipeMethod;
   readonly timeMs: number;
 }
@@ -21,8 +22,8 @@ export interface RecipeNode {
   readonly children: ReadonlyArray<RecipeNode>;
 }
 
-const inp = (itemId: string, quantity: number = 1): RecipeInput => ({
-  itemId,
+const inp = (id: string, quantity: number = 1): RecipeInput => ({
+  itemId: toItemId(id),
   quantity,
 });
 
@@ -33,7 +34,7 @@ const step = (
   output: string,
   method: RecipeMethod,
   timeMs: number
-): RecipeStep => ({ id, name, inputs, output, method, timeMs });
+): RecipeStep => ({ id: toItemId(id), name, inputs, output: toItemId(output), method, timeMs });
 
 const prep = (
   id: string,
@@ -186,12 +187,12 @@ const ALL_RECIPES: ReadonlyArray<RecipeStep> = [
   cook("miso-soup", "Miso Soup", [inp("miso-paste"), inp("cubed-tofu")], 5000),
 ];
 
-const RECIPE_MAP: ReadonlyMap<string, RecipeStep> = new Map(
+const RECIPE_MAP: ReadonlyMap<ItemId, RecipeStep> = new Map(
   ALL_RECIPES.map((r) => [r.id, r])
 );
 
-const OUTPUT_MAP: ReadonlyMap<string, ReadonlyArray<RecipeStep>> = (() => {
-  const map = new Map<string, RecipeStep[]>();
+const OUTPUT_MAP: ReadonlyMap<ItemId, ReadonlyArray<RecipeStep>> = (() => {
+  const map = new Map<ItemId, RecipeStep[]>();
   ALL_RECIPES.forEach((r) => {
     const existing = map.get(r.output) ?? [];
     map.set(r.output, [...existing, r]);
@@ -199,17 +200,17 @@ const OUTPUT_MAP: ReadonlyMap<string, ReadonlyArray<RecipeStep>> = (() => {
   return map;
 })();
 
-export const findRecipe = (id: string): RecipeStep | undefined =>
+export const findRecipe = (id: ItemId): RecipeStep | undefined =>
   RECIPE_MAP.get(id);
 
 export const recipesForOutput = (
-  itemId: string
-): ReadonlyArray<RecipeStep> => OUTPUT_MAP.get(itemId) ?? [];
+  id: ItemId
+): ReadonlyArray<RecipeStep> => OUTPUT_MAP.get(id) ?? [];
 
 export const allRecipes = (): ReadonlyArray<RecipeStep> => ALL_RECIPES;
 
 export const resolveRecipeChain = (
-  targetItemId: string
+  targetItemId: ItemId
 ): RecipeNode | undefined => {
   const recipes = recipesForOutput(targetItemId);
   if (recipes.length === 0) return undefined;
@@ -223,7 +224,7 @@ export const resolveRecipeChain = (
 export const flattenRecipeChain = (
   node: RecipeNode
 ): ReadonlyArray<RecipeStep> => {
-  const seen = new Set<string>();
+  const seen = new Set<ItemId>();
   const result: RecipeStep[] = [];
 
   const visit = (n: RecipeNode): void => {
@@ -240,7 +241,7 @@ export const flattenRecipeChain = (
 export const totalRawIngredients = (
   node: RecipeNode
 ): ReadonlyArray<RecipeInput> => {
-  const accum = new Map<string, number>();
+  const accum = new Map<ItemId, number>();
 
   const visit = (n: RecipeNode): void => {
     n.step.inputs.forEach((input) => {
@@ -257,7 +258,7 @@ export const totalRawIngredients = (
 };
 
 export const totalRecipeTime = (node: RecipeNode): number => {
-  const seen = new Set<string>();
+  const seen = new Set<ItemId>();
 
   const visit = (n: RecipeNode): number => {
     if (seen.has(n.step.id)) return 0;

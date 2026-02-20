@@ -1,3 +1,5 @@
+import type { ItemId } from "./branded";
+import { itemId } from "./branded";
 import type { RestaurantType } from "./save-slots";
 import { findItem } from "./items";
 import {
@@ -8,7 +10,7 @@ import {
 import type { RecipeStep, RecipeNode } from "./recipes";
 
 export interface MenuItem {
-  readonly dishId: string;
+  readonly dishId: ItemId;
   readonly sellPrice: number;
 }
 
@@ -18,7 +20,7 @@ export interface MenuDef {
 }
 
 const mi = (dishId: string, sellPrice: number): MenuItem => ({
-  dishId,
+  dishId: itemId(dishId),
   sellPrice,
 });
 
@@ -63,11 +65,11 @@ const MENUS: Readonly<Record<RestaurantType, MenuDef>> = {
 
 export const menuFor = (type: RestaurantType): MenuDef => MENUS[type];
 
-export const dishIdsFor = (type: RestaurantType): ReadonlyArray<string> =>
+export const dishIdsFor = (type: RestaurantType): ReadonlyArray<ItemId> =>
   MENUS[type].items.map((mi) => mi.dishId);
 
-const collectRawItems = (node: RecipeNode): ReadonlyArray<string> => {
-  const raws = new Set<string>();
+const collectRawItems = (node: RecipeNode): ReadonlyArray<ItemId> => {
+  const raws = new Set<ItemId>();
 
   const visit = (n: RecipeNode): void => {
     n.step.inputs.forEach((input) => {
@@ -85,8 +87,8 @@ const collectRawItems = (node: RecipeNode): ReadonlyArray<string> => {
 
 export const groceryItemsFor = (
   type: RestaurantType
-): ReadonlyArray<string> => {
-  const allRaws = new Set<string>();
+): ReadonlyArray<ItemId> => {
+  const allRaws = new Set<ItemId>();
   dishIdsFor(type).forEach((dishId) => {
     const chain = resolveRecipeChain(dishId);
     if (chain === undefined) return;
@@ -101,7 +103,7 @@ const collectRecipeSteps = (node: RecipeNode): ReadonlyArray<RecipeStep> =>
 export const availableRecipesFor = (
   type: RestaurantType
 ): ReadonlyArray<RecipeStep> => {
-  const seen = new Set<string>();
+  const seen = new Set<ItemId>();
   const result: RecipeStep[] = [];
 
   dishIdsFor(type).forEach((dishId) => {

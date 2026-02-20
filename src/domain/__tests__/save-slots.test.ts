@@ -18,10 +18,11 @@ import {
   type SaveStore,
   type RestaurantType,
 } from "../save-slots";
+import { slotId } from "../branded";
 
 const makeSlot = (overrides: Partial<SaveSlot> = {}): SaveSlot =>
   createSaveSlot(
-    overrides.id ?? "slot-1",
+    overrides.id ?? slotId("slot-1"),
     overrides.restaurantType ?? "burger",
     overrides.day ?? 1,
     overrides.coins ?? 10,
@@ -33,7 +34,7 @@ const makeSlot = (overrides: Partial<SaveSlot> = {}): SaveSlot =>
 
 describe("createSaveSlot", () => {
   it("constructs a slot with all fields", () => {
-    const slot = createSaveSlot("abc", "sushi", 3, 42, "KitchenScene", 9999);
+    const slot = createSaveSlot(slotId("abc"), "sushi", 3, 42, "KitchenScene", 9999);
     expect(slot).toEqual({
       id: "abc",
       restaurantType: "sushi",
@@ -66,8 +67,8 @@ describe("addSlot", () => {
 
   it("appends a slot to a non-empty store", () => {
     const store = addSlot(
-      addSlot(createSaveStore(), makeSlot({ id: "a" })),
-      makeSlot({ id: "b" })
+      addSlot(createSaveStore(), makeSlot({ id: slotId("a") })),
+      makeSlot({ id: slotId("b") })
     );
     expect(store.slots).toHaveLength(2);
     expect(store.slots[0].id).toBe("a");
@@ -84,25 +85,25 @@ describe("addSlot", () => {
 
 describe("updateSlot", () => {
   it("replaces a slot by matching id", () => {
-    const original = makeSlot({ id: "x", coins: 10 });
-    const updated = makeSlot({ id: "x", coins: 99 });
+    const original = makeSlot({ id: slotId("x"), coins: 10 });
+    const updated = makeSlot({ id: slotId("x"), coins: 99 });
     const store = updateSlot(addSlot(createSaveStore(), original), updated);
     expect(store.slots[0].coins).toBe(99);
   });
 
   it("does not change other slots", () => {
-    const a = makeSlot({ id: "a", coins: 5 });
-    const b = makeSlot({ id: "b", coins: 10 });
+    const a = makeSlot({ id: slotId("a"), coins: 5 });
+    const b = makeSlot({ id: slotId("b"), coins: 10 });
     const store = addSlot(addSlot(createSaveStore(), a), b);
-    const updatedB = makeSlot({ id: "b", coins: 20 });
+    const updatedB = makeSlot({ id: slotId("b"), coins: 20 });
     const result = updateSlot(store, updatedB);
     expect(result.slots[0].coins).toBe(5);
     expect(result.slots[1].coins).toBe(20);
   });
 
   it("returns unchanged store if id not found", () => {
-    const store = addSlot(createSaveStore(), makeSlot({ id: "a" }));
-    const result = updateSlot(store, makeSlot({ id: "z" }));
+    const store = addSlot(createSaveStore(), makeSlot({ id: slotId("a") }));
+    const result = updateSlot(store, makeSlot({ id: slotId("z") }));
     expect(result.slots).toHaveLength(1);
     expect(result.slots[0].id).toBe("a");
   });
@@ -112,24 +113,24 @@ describe("updateSlot", () => {
 
 describe("removeSlot", () => {
   it("removes a slot by id", () => {
-    const store = addSlot(createSaveStore(), makeSlot({ id: "a" }));
-    const result = removeSlot(store, "a");
+    const store = addSlot(createSaveStore(), makeSlot({ id: slotId("a") }));
+    const result = removeSlot(store, slotId("a"));
     expect(result.slots).toHaveLength(0);
   });
 
   it("does not remove other slots", () => {
     const store = addSlot(
-      addSlot(createSaveStore(), makeSlot({ id: "a" })),
-      makeSlot({ id: "b" })
+      addSlot(createSaveStore(), makeSlot({ id: slotId("a") })),
+      makeSlot({ id: slotId("b") })
     );
-    const result = removeSlot(store, "a");
+    const result = removeSlot(store, slotId("a"));
     expect(result.slots).toHaveLength(1);
     expect(result.slots[0].id).toBe("b");
   });
 
   it("returns unchanged store if id not found", () => {
-    const store = addSlot(createSaveStore(), makeSlot({ id: "a" }));
-    const result = removeSlot(store, "z");
+    const store = addSlot(createSaveStore(), makeSlot({ id: slotId("a") }));
+    const result = removeSlot(store, slotId("z"));
     expect(result.slots).toHaveLength(1);
   });
 });
@@ -138,18 +139,18 @@ describe("removeSlot", () => {
 
 describe("findSlot", () => {
   it("finds a slot by id", () => {
-    const store = addSlot(createSaveStore(), makeSlot({ id: "abc" }));
-    expect(findSlot(store, "abc")).toBeDefined();
-    expect(findSlot(store, "abc")!.id).toBe("abc");
+    const store = addSlot(createSaveStore(), makeSlot({ id: slotId("abc") }));
+    expect(findSlot(store, slotId("abc"))).toBeDefined();
+    expect(findSlot(store, slotId("abc"))!.id).toBe("abc");
   });
 
   it("returns undefined for unknown id", () => {
-    const store = addSlot(createSaveStore(), makeSlot({ id: "abc" }));
-    expect(findSlot(store, "xyz")).toBeUndefined();
+    const store = addSlot(createSaveStore(), makeSlot({ id: slotId("abc") }));
+    expect(findSlot(store, slotId("xyz"))).toBeUndefined();
   });
 
   it("returns undefined for empty store", () => {
-    expect(findSlot(createSaveStore(), "any")).toBeUndefined();
+    expect(findSlot(createSaveStore(), slotId("any"))).toBeUndefined();
   });
 });
 
@@ -161,17 +162,17 @@ describe("findMostRecent", () => {
   });
 
   it("returns the only slot for single-slot store", () => {
-    const store = addSlot(createSaveStore(), makeSlot({ id: "only" }));
+    const store = addSlot(createSaveStore(), makeSlot({ id: slotId("only") }));
     expect(findMostRecent(store)!.id).toBe("only");
   });
 
   it("returns the slot with the highest lastSaved", () => {
     const store = addSlot(
       addSlot(
-        addSlot(createSaveStore(), makeSlot({ id: "old", lastSaved: 100 })),
-        makeSlot({ id: "newest", lastSaved: 9999 })
+        addSlot(createSaveStore(), makeSlot({ id: slotId("old"), lastSaved: 100 })),
+        makeSlot({ id: slotId("newest"), lastSaved: 9999 })
       ),
-      makeSlot({ id: "middle", lastSaved: 5000 })
+      makeSlot({ id: slotId("middle"), lastSaved: 5000 })
     );
     expect(findMostRecent(store)!.id).toBe("newest");
   });
@@ -312,8 +313,8 @@ describe("deserializeStore", () => {
 
   it("accepts a store with multiple valid slots", () => {
     const store = addSlot(
-      addSlot(createSaveStore(), makeSlot({ id: "a" })),
-      makeSlot({ id: "b", restaurantType: "sushi" })
+      addSlot(createSaveStore(), makeSlot({ id: slotId("a") })),
+      makeSlot({ id: slotId("b"), restaurantType: "sushi" })
     );
     const result = deserializeStore(serializeStore(store));
     expect(result).toEqual(store);
@@ -324,10 +325,10 @@ describe("deserializeStore", () => {
 
 describe("loadStore", () => {
   it("returns parsed v2 store from valid JSON", () => {
-    const store = addSlot(createSaveStore(), makeSlot({ id: "existing" }));
+    const store = addSlot(createSaveStore(), makeSlot({ id: slotId("existing") }));
     const result = loadStore(
       serializeStore(store),
-      "migration-id",
+      slotId("migration-id"),
       Date.now()
     );
     expect(result.slots).toHaveLength(1);
@@ -336,7 +337,7 @@ describe("loadStore", () => {
 
   it("migrates v1 save data to a single-slot v2 store", () => {
     const v1 = JSON.stringify({ version: 1, coins: 42 });
-    const result = loadStore(v1, "migrated-id", 5000);
+    const result = loadStore(v1, slotId("migrated-id"), 5000);
     expect(result.version).toBe(2);
     expect(result.slots).toHaveLength(1);
     expect(result.slots[0].id).toBe("migrated-id");
@@ -348,17 +349,17 @@ describe("loadStore", () => {
   });
 
   it("returns empty store for null input", () => {
-    const result = loadStore(null, "id", Date.now());
+    const result = loadStore(null, slotId("id"), Date.now());
     expect(result.slots).toHaveLength(0);
   });
 
   it("returns empty store for invalid JSON", () => {
-    const result = loadStore("{garbage", "id", Date.now());
+    const result = loadStore("{garbage", slotId("id"), Date.now());
     expect(result.slots).toHaveLength(0);
   });
 
   it("returns empty store for unrecognized valid JSON", () => {
-    const result = loadStore(JSON.stringify({ foo: "bar" }), "id", Date.now());
+    const result = loadStore(JSON.stringify({ foo: "bar" }), slotId("id"), Date.now());
     expect(result.slots).toHaveLength(0);
   });
 });
@@ -445,7 +446,7 @@ describe("property-based tests", () => {
       lastSaved: fc.nat(Number.MAX_SAFE_INTEGER),
     })
     .map((r) =>
-      createSaveSlot(r.id, r.restaurantType, r.day, r.coins, r.scene, r.lastSaved)
+      createSaveSlot(slotId(r.id), r.restaurantType, r.day, r.coins, r.scene, r.lastSaved)
     );
 
   it("serialize/deserialize roundtrips for any valid store", () => {

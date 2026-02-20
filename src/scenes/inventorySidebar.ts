@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import type { ItemId } from "../domain/branded";
 import { findItem } from "../domain/items";
 import {
   itemCounts,
@@ -37,7 +38,7 @@ export const renderInventorySidebar = (
     return item !== undefined && item.category === "prepped";
   });
 
-  const renderEntry = (itemId: string, count: number): void => {
+  const renderEntry = (itemId: ItemId, count: number): void => {
     const item = findItem(itemId);
     const name = item?.name ?? itemId;
     const display = name.length > 12 ? name.slice(0, 11) + "." : name;

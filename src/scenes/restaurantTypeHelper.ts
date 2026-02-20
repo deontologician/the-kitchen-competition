@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import type { SlotId } from "../domain/branded";
 import {
   type SaveStore,
   type RestaurantType,
@@ -9,7 +10,7 @@ export const getActiveRestaurantType = (
   registry: Phaser.Data.DataManager
 ): RestaurantType => {
   const store: SaveStore | undefined = registry.get("saveStore");
-  const activeSlotId: string | undefined = registry.get("activeSlotId");
+  const activeSlotId: SlotId | undefined = registry.get("activeSlotId");
   if (store === undefined || activeSlotId === undefined) return "burger";
   const slot = findSlot(store, activeSlotId);
   return slot?.restaurantType ?? "burger";

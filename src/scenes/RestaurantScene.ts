@@ -60,6 +60,7 @@ import {
 } from "./notification";
 import { renderInventorySidebar } from "./inventorySidebar";
 import { renderTableOverlays, type TablePositions } from "./tableRenderer";
+import { type CustomerId, type ItemId, customerId, orderId } from "../domain/branded";
 import {
   animateServe,
   animateCustomerLeft,
@@ -291,7 +292,7 @@ export class RestaurantScene extends Phaser.Scene {
         Math.random() *
           (difficulty.customerPatienceMaxMs - difficulty.customerPatienceMinMs)
       );
-    const customer = createCustomer(crypto.randomUUID(), menuItem.dishId, patienceMs);
+    const customer = createCustomer(customerId(crypto.randomUUID()), menuItem.dishId, patienceMs);
     this.customersSpawned++;
     const updatedLayout = seatCustomer(cycle.phase.tableLayout, tableId, customer.id);
     const updatedPhase = enqueueCustomer(
@@ -385,7 +386,7 @@ export class RestaurantScene extends Phaser.Scene {
 
           const cooking = beginCooking(
             current.phase,
-            crypto.randomUUID(),
+            orderId(crypto.randomUUID()),
             current.phase.subPhase.customer.dishId
           );
           this.registry.set("dayCycle", { ...current, phase: cooking });
@@ -618,26 +619,26 @@ export class RestaurantScene extends Phaser.Scene {
   /** Serve a dish: animate, remove from inventory, update phase, clear status. */
   private doServe(
     cycle: DayCycle,
-    customerId: string,
-    dishId: string,
+    custId: CustomerId,
+    dishId: ItemId,
     price: number
   ): void {
     if (cycle.phase.tag !== "service") return;
 
-    this.doAnimateServe(customerId);
+    this.doAnimateServe(custId);
     this.removeFromInventory(dishId);
 
     // Fast-track through cooking→serving→finishServing if needed
     const phase = cycle.phase;
     let served: ServicePhase;
     if (phase.subPhase.tag === "taking_order") {
-      const cooking = beginCooking(phase, crypto.randomUUID(), dishId);
+      const cooking = beginCooking(phase, orderId(crypto.randomUUID()), dishId);
       const serving = finishCooking(cooking);
       served = finishServing(serving, price);
     } else {
       served = finishServing(phase, price);
     }
-    const updatedLayout = unseatCustomer(served.tableLayout, customerId);
+    const updatedLayout = unseatCustomer(served.tableLayout, custId);
     this.registry.set("dayCycle", {
       ...cycle,
       phase: { ...served, tableLayout: updatedLayout },
@@ -645,11 +646,11 @@ export class RestaurantScene extends Phaser.Scene {
     this.clearStatus();
   }
 
-  private doAnimateServe(customerId: string): void {
+  private doAnimateServe(custId: CustomerId): void {
     const cycle = this.getCycle();
     if (cycle === undefined || cycle.phase.tag !== "service") return;
     const tableId = cycle.phase.tableLayout.tables.findIndex(
-      (t) => t.customerId === customerId
+      (t) => t.customerId === custId
     );
     if (tableId < 0 || tableId >= this.tableSprites.length) return;
     animateServe(this, this.tableSprites[tableId], TABLE_POSITIONS[tableId]);
@@ -662,7 +663,7 @@ export class RestaurantScene extends Phaser.Scene {
     return menuItem?.sellPrice ?? 5;
   }
 
-  private removeFromInventory(dishId: string): void {
+  private removeFromInventory(dishId: ItemId): void {
     const inv = this.getInventory();
     const afterRemove = removeItems(inv, dishId, 1);
     if (afterRemove !== undefined) {

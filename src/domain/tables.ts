@@ -1,6 +1,8 @@
+import type { CustomerId } from "./branded";
+
 export interface Table {
   readonly id: number;
-  readonly customerId: string | undefined;
+  readonly customerId: CustomerId | undefined;
 }
 
 export interface TableLayout {
@@ -22,7 +24,7 @@ export const emptyTableIds = (layout: TableLayout): ReadonlyArray<number> =>
 export const seatCustomer = (
   layout: TableLayout,
   tableId: number,
-  customerId: string
+  customerId: CustomerId
 ): TableLayout => {
   const table = layout.tables.find((t) => t.id === tableId);
   if (table === undefined || table.customerId !== undefined) return layout;
@@ -35,7 +37,7 @@ export const seatCustomer = (
 
 export const unseatCustomer = (
   layout: TableLayout,
-  customerId: string
+  customerId: CustomerId
 ): TableLayout => {
   if (!layout.tables.some((t) => t.customerId === customerId)) return layout;
   return {
@@ -47,7 +49,7 @@ export const unseatCustomer = (
 
 export const findCustomerTable = (
   layout: TableLayout,
-  customerId: string
+  customerId: CustomerId
 ): number | undefined =>
   layout.tables.find((t) => t.customerId === customerId)?.id;
 

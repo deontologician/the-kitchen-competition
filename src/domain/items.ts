@@ -1,7 +1,9 @@
+import { type ItemId, itemId } from "./branded";
+
 export type ItemCategory = "raw" | "prepped" | "dish";
 
 export interface ItemDef {
-  readonly id: string;
+  readonly id: ItemId;
   readonly name: string;
   readonly category: ItemCategory;
   readonly cost: number | undefined;
@@ -9,7 +11,7 @@ export interface ItemDef {
 }
 
 const raw = (id: string, name: string, cost: number): ItemDef => ({
-  id,
+  id: itemId(id),
   name,
   category: "raw",
   cost,
@@ -17,7 +19,7 @@ const raw = (id: string, name: string, cost: number): ItemDef => ({
 });
 
 const prepped = (id: string, name: string, shelfLifeMs: number): ItemDef => ({
-  id,
+  id: itemId(id),
   name,
   category: "prepped",
   cost: undefined,
@@ -25,7 +27,7 @@ const prepped = (id: string, name: string, shelfLifeMs: number): ItemDef => ({
 });
 
 const dish = (id: string, name: string, shelfLifeMs: number): ItemDef => ({
-  id,
+  id: itemId(id),
   name,
   category: "dish",
   cost: undefined,
@@ -124,11 +126,11 @@ const ALL_ITEMS: ReadonlyArray<ItemDef> = [
   dish("miso-soup", "Miso Soup", 60_000),
 ];
 
-const ITEM_MAP: ReadonlyMap<string, ItemDef> = new Map(
+const ITEM_MAP: ReadonlyMap<ItemId, ItemDef> = new Map(
   ALL_ITEMS.map((item) => [item.id, item])
 );
 
-export const findItem = (id: string): ItemDef | undefined =>
+export const findItem = (id: ItemId): ItemDef | undefined =>
   ITEM_MAP.get(id);
 
 export const rawItems = (): ReadonlyArray<ItemDef> =>

@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { addMenuButton } from "./renderPixelText";
+import { type SlotId, slotId } from "../domain/branded";
 import { type Wallet, createWallet, initialWallet } from "../domain/wallet";
 import { createInventory } from "../domain/inventory";
 import {
@@ -46,7 +47,7 @@ export class TitleScene extends Phaser.Scene {
   private initStore(): void {
     if (this.registry.has("saveStore")) return;
     const raw = localStorage.getItem(SAVE_KEY);
-    const store = loadStore(raw, crypto.randomUUID(), Date.now());
+    const store = loadStore(raw, slotId(crypto.randomUUID()), Date.now());
     this.registry.set("saveStore", store);
 
     // Load leaderboard
@@ -63,7 +64,7 @@ export class TitleScene extends Phaser.Scene {
       "changedata-wallet",
       (_parent: unknown, value: Wallet) => {
         const store: SaveStore | undefined = this.registry.get("saveStore");
-        const activeSlotId: string | undefined =
+        const activeSlotId: SlotId | undefined =
           this.registry.get("activeSlotId");
         if (store === undefined || activeSlotId === undefined) return;
 
@@ -215,7 +216,7 @@ export class TitleScene extends Phaser.Scene {
   }
 
   private startNewGame(type: RestaurantType): void {
-    const id = crypto.randomUUID();
+    const id = slotId(crypto.randomUUID());
     const now = Date.now();
     const slot = createSaveSlot(id, type, 1, 10, "GroceryScene", now);
     const store: SaveStore =

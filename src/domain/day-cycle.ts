@@ -1,8 +1,9 @@
+import type { CustomerId, OrderId, ItemId } from "./branded";
 import { type TableLayout, createTableLayout, unseatCustomer } from "./tables";
 
 export interface Customer {
-  readonly id: string;
-  readonly dishId: string;
+  readonly id: CustomerId;
+  readonly dishId: ItemId;
   readonly patienceMs: number;
   readonly maxPatienceMs: number;
 }
@@ -10,8 +11,8 @@ export interface Customer {
 export const DEFAULT_PATIENCE_MS = 60_000;
 
 export const createCustomer = (
-  id: string,
-  dishId: string,
+  id: CustomerId,
+  dishId: ItemId,
   patienceMs: number = DEFAULT_PATIENCE_MS
 ): Customer => ({
   id,
@@ -21,9 +22,9 @@ export const createCustomer = (
 });
 
 export interface Order {
-  readonly id: string;
-  readonly customerId: string;
-  readonly dishId: string;
+  readonly id: OrderId;
+  readonly customerId: CustomerId;
+  readonly dishId: ItemId;
 }
 
 // Service sub-phases (discriminated union)
@@ -218,15 +219,15 @@ export const beginTakingOrder = (
 
 export const beginCooking = (
   phase: ServicePhase,
-  orderId: string,
-  dishId: string
+  id: OrderId,
+  dishId: ItemId
 ): ServicePhase => {
   if (phase.subPhase.tag !== "taking_order") return phase;
   return {
     ...phase,
     subPhase: {
       tag: "cooking",
-      order: { id: orderId, customerId: phase.subPhase.customer.id, dishId },
+      order: { id, customerId: phase.subPhase.customer.id, dishId },
     },
   };
 };
@@ -239,7 +240,7 @@ export const finishCooking = (phase: ServicePhase): ServicePhase => {
   };
 };
 
-export const activeCustomerId = (phase: ServicePhase): string | undefined => {
+export const activeCustomerId = (phase: ServicePhase): CustomerId | undefined => {
   switch (phase.subPhase.tag) {
     case "taking_order":
       return phase.subPhase.customer.id;
@@ -333,4 +334,3 @@ export const activeSceneForPhase = (phase: Phase): string => {
     }
   }
 };
-

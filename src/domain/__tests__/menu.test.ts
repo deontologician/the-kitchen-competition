@@ -10,6 +10,7 @@ import {
 import type { RestaurantType } from "../save-slots";
 import { findItem } from "../items";
 import { findRecipe, allRecipes, resolveRecipeChain } from "../recipes";
+import { itemId, type ItemId } from "../branded";
 
 const TYPES: ReadonlyArray<RestaurantType> = ["burger", "bbq", "sushi"];
 
@@ -62,29 +63,29 @@ describe("dishIdsFor", () => {
 
   it("burger dishes are burger dishes", () => {
     const ids = dishIdsFor("burger");
-    expect(ids).toContain("classic-burger");
-    expect(ids).toContain("cheeseburger");
-    expect(ids).toContain("bacon-cheeseburger");
-    expect(ids).toContain("chicken-sandwich");
-    expect(ids).toContain("loaded-fries");
+    expect(ids).toContain(itemId("classic-burger"));
+    expect(ids).toContain(itemId("cheeseburger"));
+    expect(ids).toContain(itemId("bacon-cheeseburger"));
+    expect(ids).toContain(itemId("chicken-sandwich"));
+    expect(ids).toContain(itemId("loaded-fries"));
   });
 
   it("bbq dishes are bbq dishes", () => {
     const ids = dishIdsFor("bbq");
-    expect(ids).toContain("pulled-pork-sandwich");
-    expect(ids).toContain("smoked-ribs-plate");
-    expect(ids).toContain("brisket-sandwich");
-    expect(ids).toContain("bbq-burger");
-    expect(ids).toContain("smoked-chicken-plate");
+    expect(ids).toContain(itemId("pulled-pork-sandwich"));
+    expect(ids).toContain(itemId("smoked-ribs-plate"));
+    expect(ids).toContain(itemId("brisket-sandwich"));
+    expect(ids).toContain(itemId("bbq-burger"));
+    expect(ids).toContain(itemId("smoked-chicken-plate"));
   });
 
   it("sushi dishes are sushi dishes", () => {
     const ids = dishIdsFor("sushi");
-    expect(ids).toContain("salmon-nigiri");
-    expect(ids).toContain("tuna-roll");
-    expect(ids).toContain("california-roll");
-    expect(ids).toContain("tempura-shrimp-roll");
-    expect(ids).toContain("miso-soup");
+    expect(ids).toContain(itemId("salmon-nigiri"));
+    expect(ids).toContain(itemId("tuna-roll"));
+    expect(ids).toContain(itemId("california-roll"));
+    expect(ids).toContain(itemId("tempura-shrimp-roll"));
+    expect(ids).toContain(itemId("miso-soup"));
   });
 });
 
@@ -116,30 +117,30 @@ describe("groceryItemsFor", () => {
 
   it("burger grocery list includes expected items", () => {
     const items = groceryItemsFor("burger");
-    expect(items).toContain("bun");
-    expect(items).toContain("ground-beef");
-    expect(items).toContain("lettuce");
-    expect(items).toContain("tomato");
-    expect(items).toContain("cheese");
-    expect(items).toContain("bacon");
-    expect(items).toContain("chicken-breast");
-    expect(items).toContain("potato");
-    expect(items).toContain("onion");
+    expect(items).toContain(itemId("bun"));
+    expect(items).toContain(itemId("ground-beef"));
+    expect(items).toContain(itemId("lettuce"));
+    expect(items).toContain(itemId("tomato"));
+    expect(items).toContain(itemId("cheese"));
+    expect(items).toContain(itemId("bacon"));
+    expect(items).toContain(itemId("chicken-breast"));
+    expect(items).toContain(itemId("potato"));
+    expect(items).toContain(itemId("onion"));
   });
 
   it("sushi grocery list includes expected items", () => {
     const items = groceryItemsFor("sushi");
-    expect(items).toContain("rice");
-    expect(items).toContain("rice-vinegar");
-    expect(items).toContain("nori");
-    expect(items).toContain("salmon");
-    expect(items).toContain("tuna");
-    expect(items).toContain("shrimp");
-    expect(items).toContain("cucumber");
-    expect(items).toContain("avocado");
-    expect(items).toContain("crab");
-    expect(items).toContain("tofu");
-    expect(items).toContain("miso-paste");
+    expect(items).toContain(itemId("rice"));
+    expect(items).toContain(itemId("rice-vinegar"));
+    expect(items).toContain(itemId("nori"));
+    expect(items).toContain(itemId("salmon"));
+    expect(items).toContain(itemId("tuna"));
+    expect(items).toContain(itemId("shrimp"));
+    expect(items).toContain(itemId("cucumber"));
+    expect(items).toContain(itemId("avocado"));
+    expect(items).toContain(itemId("crab"));
+    expect(items).toContain(itemId("tofu"));
+    expect(items).toContain(itemId("miso-paste"));
   });
 
   it("no duplicates in grocery lists", () => {
@@ -168,12 +169,12 @@ describe("availableRecipesFor", () => {
     const recipes = availableRecipesFor("burger");
     const ids = recipes.map((r) => r.id);
     // Some expected intermediates
-    expect(ids).toContain("shredded-lettuce");
-    expect(ids).toContain("beef-patty");
-    expect(ids).toContain("grilled-patty");
+    expect(ids).toContain(itemId("shredded-lettuce"));
+    expect(ids).toContain(itemId("beef-patty"));
+    expect(ids).toContain(itemId("grilled-patty"));
     // All dishes
-    expect(ids).toContain("classic-burger");
-    expect(ids).toContain("cheeseburger");
+    expect(ids).toContain(itemId("classic-burger"));
+    expect(ids).toContain(itemId("cheeseburger"));
   });
 
   it("no duplicates in recipe lists", () => {
@@ -249,7 +250,7 @@ describe("sell prices", () => {
         if (chain === undefined) return;
         // Collect all raw ingredient costs
         let totalCost = 0;
-        const countRaws = (node: { step: { inputs: ReadonlyArray<{ itemId: string; quantity: number }> }; children: ReadonlyArray<typeof node> }): void => {
+        const countRaws = (node: { step: { inputs: ReadonlyArray<{ itemId: ItemId; quantity: number }> }; children: ReadonlyArray<typeof node> }): void => {
           node.step.inputs.forEach((input) => {
             const item = findItem(input.itemId);
             if (item !== undefined && item.category === "raw" && item.cost !== undefined) {
@@ -296,7 +297,7 @@ describe("property-based tests", () => {
         dishes.forEach((dishId) => {
           const chain = resolveRecipeChain(dishId);
           if (chain === undefined) return;
-          const collectRaws = (node: { step: { inputs: ReadonlyArray<{ itemId: string }> }; children: ReadonlyArray<typeof node> }): void => {
+          const collectRaws = (node: { step: { inputs: ReadonlyArray<{ itemId: ItemId }> }; children: ReadonlyArray<typeof node> }): void => {
             node.step.inputs.forEach((input) => {
               const item = findItem(input.itemId);
               if (item !== undefined && item.category === "raw") {

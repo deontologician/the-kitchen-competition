@@ -1,9 +1,11 @@
+import type { SlotId } from "./branded";
+import { slotId } from "./branded";
 import { deserializeSave } from "./save-game";
 
 export type RestaurantType = "sushi" | "bbq" | "burger";
 
 export interface SaveSlot {
-  readonly id: string;
+  readonly id: SlotId;
   readonly restaurantType: RestaurantType;
   readonly day: number;
   readonly coins: number;
@@ -32,7 +34,7 @@ const RESTAURANT_DISPLAY_NAMES: Readonly<Record<RestaurantType, string>> = {
 };
 
 export const createSaveSlot = (
-  id: string,
+  id: SlotId,
   restaurantType: RestaurantType,
   day: number,
   coins: number,
@@ -55,14 +57,14 @@ export const updateSlot = (store: SaveStore, slot: SaveSlot): SaveStore => ({
   slots: store.slots.map((s) => (s.id === slot.id ? slot : s)),
 });
 
-export const removeSlot = (store: SaveStore, id: string): SaveStore => ({
+export const removeSlot = (store: SaveStore, id: SlotId): SaveStore => ({
   ...store,
   slots: store.slots.filter((s) => s.id !== id),
 });
 
 export const findSlot = (
   store: SaveStore,
-  id: string
+  id: SlotId
 ): SaveSlot | undefined => store.slots.find((s) => s.id === id);
 
 export const findMostRecent = (
@@ -107,7 +109,7 @@ export const deserializeStore = (json: string): SaveStore | undefined => {
       version: 2,
       slots: rec.slots.map((s) =>
         createSaveSlot(
-          s.id,
+          slotId(s.id),
           s.restaurantType,
           s.day,
           s.coins,
@@ -123,7 +125,7 @@ export const deserializeStore = (json: string): SaveStore | undefined => {
 
 export const loadStore = (
   raw: string | null,
-  migrationId: string,
+  migrationId: SlotId,
   migrationTimestamp: number
 ): SaveStore => {
   if (raw === null) return createSaveStore();

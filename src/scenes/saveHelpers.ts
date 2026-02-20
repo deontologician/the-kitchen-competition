@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import type { SlotId } from "../domain/branded";
 import {
   type SaveStore,
   findSlot,
@@ -11,7 +12,7 @@ export const recordSceneEntry = (
   sceneKey: string
 ): void => {
   const store: SaveStore | undefined = registry.get("saveStore");
-  const activeSlotId: string | undefined = registry.get("activeSlotId");
+  const activeSlotId: SlotId | undefined = registry.get("activeSlotId");
   if (store === undefined || activeSlotId === undefined) return;
 
   const slot = findSlot(store, activeSlotId);
@@ -33,7 +34,7 @@ export const recordDayAdvance = (
   day: number
 ): void => {
   const store: SaveStore | undefined = registry.get("saveStore");
-  const activeSlotId: string | undefined = registry.get("activeSlotId");
+  const activeSlotId: SlotId | undefined = registry.get("activeSlotId");
   if (store === undefined || activeSlotId === undefined) return;
 
   const slot = findSlot(store, activeSlotId);

@@ -8,6 +8,7 @@ import {
   allItems,
 } from "../items";
 import type { ItemDef } from "../items";
+import { itemId } from "../branded";
 
 // ---------------------------------------------------------------------------
 // allItems — basic invariants
@@ -144,7 +145,7 @@ describe("dishItems", () => {
 // ---------------------------------------------------------------------------
 describe("findItem", () => {
   it("returns the item for a valid id", () => {
-    const item = findItem("bun");
+    const item = findItem(itemId("bun"));
     expect(item).toBeDefined();
     expect(item!.name).toBe("Bun");
     expect(item!.category).toBe("raw");
@@ -152,17 +153,17 @@ describe("findItem", () => {
   });
 
   it("returns undefined for unknown id", () => {
-    expect(findItem("nonexistent")).toBeUndefined();
+    expect(findItem(itemId("nonexistent"))).toBeUndefined();
   });
 
   it("finds prepped items", () => {
-    const item = findItem("grilled-patty");
+    const item = findItem(itemId("grilled-patty"));
     expect(item).toBeDefined();
     expect(item!.category).toBe("prepped");
   });
 
   it("finds dish items", () => {
-    const item = findItem("classic-burger");
+    const item = findItem(itemId("classic-burger"));
     expect(item).toBeDefined();
     expect(item!.category).toBe("dish");
   });
@@ -173,7 +174,7 @@ describe("findItem", () => {
 // ---------------------------------------------------------------------------
 describe("spot checks", () => {
   it("ground beef is raw, costs $2", () => {
-    const item = findItem("ground-beef");
+    const item = findItem(itemId("ground-beef"));
     expect(item).toEqual({
       id: "ground-beef",
       name: "Ground Beef",
@@ -184,7 +185,7 @@ describe("spot checks", () => {
   });
 
   it("grilled patty is prepped with 60s shelf life", () => {
-    const item = findItem("grilled-patty");
+    const item = findItem(itemId("grilled-patty"));
     expect(item).toEqual({
       id: "grilled-patty",
       name: "Grilled Patty",
@@ -195,7 +196,7 @@ describe("spot checks", () => {
   });
 
   it("classic burger is a dish with 45s shelf life", () => {
-    const item = findItem("classic-burger");
+    const item = findItem(itemId("classic-burger"));
     expect(item).toEqual({
       id: "classic-burger",
       name: "Classic Burger",
@@ -206,7 +207,7 @@ describe("spot checks", () => {
   });
 
   it("miso soup is a dish with 60s shelf life", () => {
-    const item = findItem("miso-soup");
+    const item = findItem(itemId("miso-soup"));
     expect(item).toEqual({
       id: "miso-soup",
       name: "Miso Soup",
@@ -217,7 +218,7 @@ describe("spot checks", () => {
   });
 
   it("tempura shrimp is prepped with 30s shelf life", () => {
-    const item = findItem("tempura-shrimp");
+    const item = findItem(itemId("tempura-shrimp"));
     expect(item).toEqual({
       id: "tempura-shrimp",
       name: "Tempura Shrimp",
@@ -228,7 +229,7 @@ describe("spot checks", () => {
   });
 
   it("salmon is raw, costs $3", () => {
-    const item = findItem("salmon");
+    const item = findItem(itemId("salmon"));
     expect(item).toEqual({
       id: "salmon",
       name: "Salmon",

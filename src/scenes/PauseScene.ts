@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import type { SlotId } from "../domain/branded";
 import { addMenuButton } from "./renderPixelText";
 import { renderPanel } from "./panel";
 import {
@@ -114,7 +115,7 @@ export class PauseScene extends Phaser.Scene {
 
   private saveGame(): void {
     const store: SaveStore | undefined = this.registry.get("saveStore");
-    const activeSlotId: string | undefined = this.registry.get("activeSlotId");
+    const activeSlotId: SlotId | undefined = this.registry.get("activeSlotId");
     if (store === undefined || activeSlotId === undefined) return;
 
     const slot = findSlot(store, activeSlotId);
