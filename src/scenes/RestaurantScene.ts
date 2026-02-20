@@ -4,9 +4,18 @@ import { initialWallet, formatCoins, addCoins, type Wallet } from "../domain/wal
 import { measureLineWidth, createDefaultLayoutConfig } from "../domain/pixel-font";
 import { recordSceneEntry } from "./saveHelpers";
 import { renderTimerBar, formatTimeRemaining } from "./timerBar";
+import { renderPanel } from "./panel";
+import {
+  getActiveRestaurantType,
+  backgroundKey,
+  backgroundAssetPath,
+  tableKey,
+  tableAssetPath,
+} from "./restaurantTypeHelper";
 import {
   type DayCycle,
   type Customer,
+  type ServicePhase,
   tickTimer,
   isPhaseTimerExpired,
   timerFraction,
@@ -18,6 +27,16 @@ import {
   finishServing,
   defaultDurations,
 } from "../domain/day-cycle";
+import {
+  emptyTableIds,
+  seatCustomer,
+  unseatCustomer,
+} from "../domain/tables";
+
+const TABLE_POSITIONS: ReadonlyArray<{ readonly x: number; readonly y: number }> = [
+  { x: 200, y: 300 }, { x: 400, y: 300 }, { x: 600, y: 300 },
+  { x: 200, y: 450 }, { x: 400, y: 450 }, { x: 600, y: 450 },
+];
 
 export class RestaurantScene extends Phaser.Scene {
   private timerGraphics?: Phaser.GameObjects.Graphics;
@@ -25,28 +44,56 @@ export class RestaurantScene extends Phaser.Scene {
   private customerSpawnTimer?: Phaser.Time.TimerEvent;
   private statusObjects: Phaser.GameObjects.GameObject[] = [];
   private dayEndShown = false;
+  private tableSprites: Phaser.GameObjects.Image[] = [];
 
   constructor() {
     super("RestaurantScene");
   }
 
   preload(): void {
-    this.load.image("restaurant-bg", "assets/restaurant-bg.png");
+    const type = getActiveRestaurantType(this.registry);
+    const bgKey = backgroundKey(type, "restaurant");
+    if (!this.textures.exists(bgKey)) {
+      this.load.image(bgKey, backgroundAssetPath(type, "restaurant"));
+    }
+    const tKey = tableKey(type);
+    if (!this.textures.exists(tKey)) {
+      this.load.image(tKey, tableAssetPath(type));
+    }
   }
 
   create(): void {
     this.dayEndShown = false;
     this.statusObjects = [];
+    this.tableSprites = [];
     recordSceneEntry(this.registry, "RestaurantScene");
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    const type = getActiveRestaurantType(this.registry);
     this.add
-      .image(this.scale.width / 2, this.scale.height / 2, "restaurant-bg")
-      .setDisplaySize(this.scale.width, this.scale.height);
+      .image(w / 2, h / 2, backgroundKey(type, "restaurant"))
+      .setDisplaySize(w, h);
+
+    // Place table sprites
+    const tKey = tableKey(type);
+    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
+    const numTables =
+      cycle !== undefined && cycle.phase.tag === "service"
+        ? cycle.phase.tableLayout.tables.length
+        : 4;
+
+    TABLE_POSITIONS.slice(0, numTables).forEach((pos) => {
+      const sprite = this.add.image(pos.x, pos.y, tKey).setDisplaySize(96, 96);
+      this.tableSprites.push(sprite);
+    });
+
+    renderPanel(this, { marginTop: 80, marginBottom: 40, marginLeft: 40, marginRight: 40 }, { fillAlpha: 0.35 });
 
     renderPixelText(this, ["RESTAURANT"], { centerY: 120 });
 
     this.renderCoinHud();
 
-    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
     if (cycle === undefined) return;
 
     if (cycle.phase.tag === "day_end") {
@@ -56,7 +103,9 @@ export class RestaurantScene extends Phaser.Scene {
 
     if (cycle.phase.tag !== "service") return;
 
-    // Schedule customer arrivals every 10–15s
+    this.updateTableTints(cycle.phase);
+
+    // Schedule customer arrivals every 10-15s
     this.customerSpawnTimer = this.time.addEvent({
       delay: 10_000 + Math.random() * 5_000,
       callback: () => this.spawnCustomer(),
@@ -88,6 +137,8 @@ export class RestaurantScene extends Phaser.Scene {
     this.timerLabel = this.children.list[
       this.children.list.length - 1
     ] as Phaser.GameObjects.Text;
+
+    this.updateTableTints(updated.phase);
 
     if (isPhaseTimerExpired(updated)) {
       this.customerSpawnTimer?.destroy();
@@ -127,9 +178,17 @@ export class RestaurantScene extends Phaser.Scene {
     const cycle: DayCycle | undefined = this.registry.get("dayCycle");
     if (cycle === undefined || cycle.phase.tag !== "service") return;
 
+    const empty = emptyTableIds(cycle.phase.tableLayout);
+    if (empty.length === 0) return;
+
+    const tableId = empty[Math.floor(Math.random() * empty.length)];
     const customer: Customer = { id: crypto.randomUUID() };
-    const updated = enqueueCustomer(cycle.phase, customer);
-    this.registry.set("dayCycle", { ...cycle, phase: updated });
+    const updatedLayout = seatCustomer(cycle.phase.tableLayout, tableId, customer.id);
+    const updatedPhase = enqueueCustomer(
+      { ...cycle.phase, tableLayout: updatedLayout },
+      customer
+    );
+    this.registry.set("dayCycle", { ...cycle, phase: updatedPhase });
   }
 
   private showTakingOrder(cycle: DayCycle): void {
@@ -139,7 +198,7 @@ export class RestaurantScene extends Phaser.Scene {
     const centerX = this.scale.width / 2;
     this.statusObjects.push(
       this.add
-        .text(centerX, 280, "CUSTOMER WANTS TO ORDER!", {
+        .text(centerX, 220, "CUSTOMER WANTS TO ORDER!", {
           fontFamily: "monospace",
           fontSize: "16px",
           color: "#f5a623",
@@ -150,7 +209,7 @@ export class RestaurantScene extends Phaser.Scene {
     );
 
     this.statusObjects.push(
-      addMenuButton(this, centerX, 340, "Take Order", () => {
+      addMenuButton(this, centerX, 260, "Take Order", () => {
         const current: DayCycle | undefined = this.registry.get("dayCycle");
         if (
           current === undefined ||
@@ -174,7 +233,7 @@ export class RestaurantScene extends Phaser.Scene {
     if (cycle.phase.tag !== "service" || cycle.phase.subPhase.tag !== "serving")
       return;
 
-    // Only show once — check if already displaying
+    // Only show once
     if (
       this.statusObjects.length > 0 &&
       this.statusObjects.some(
@@ -190,7 +249,7 @@ export class RestaurantScene extends Phaser.Scene {
 
     this.statusObjects.push(
       this.add
-        .text(centerX, 280, "DISH READY TO SERVE!", {
+        .text(centerX, 220, "DISH READY TO SERVE!", {
           fontFamily: "monospace",
           fontSize: "16px",
           color: "#4caf50",
@@ -200,8 +259,14 @@ export class RestaurantScene extends Phaser.Scene {
         .setOrigin(0.5)
     );
 
+    // Capture customerId before finishServing clears it
+    const servingCustomerId =
+      cycle.phase.subPhase.tag === "serving"
+        ? cycle.phase.subPhase.order.customerId
+        : undefined;
+
     this.statusObjects.push(
-      addMenuButton(this, centerX, 340, "Serve Dish", () => {
+      addMenuButton(this, centerX, 260, "Serve Dish", () => {
         const current: DayCycle | undefined = this.registry.get("dayCycle");
         if (
           current === undefined ||
@@ -211,7 +276,13 @@ export class RestaurantScene extends Phaser.Scene {
           return;
 
         const served = finishServing(current.phase);
-        const withServed: DayCycle = { ...current, phase: served };
+        // Unseat the customer from their table
+        const custId = servingCustomerId ?? current.phase.subPhase.order.customerId;
+        const updatedLayout = unseatCustomer(served.tableLayout, custId);
+        const withServed: DayCycle = {
+          ...current,
+          phase: { ...served, tableLayout: updatedLayout },
+        };
         this.registry.set("dayCycle", withServed);
         this.clearStatus();
       })
@@ -238,7 +309,7 @@ export class RestaurantScene extends Phaser.Scene {
         : "Waiting for customers...";
     this.statusObjects.push(
       this.add
-        .text(centerX, 300, msg, {
+        .text(centerX, 240, msg, {
           fontFamily: "monospace",
           fontSize: "14px",
           color: "#888899",
@@ -316,6 +387,14 @@ export class RestaurantScene extends Phaser.Scene {
     renderPixelText(this, [coinText], {
       x: this.scale.width - textWidth - config.pixelSize * 5,
       y: config.pixelSize * 3,
+    });
+  }
+
+  private updateTableTints(phase: ServicePhase): void {
+    phase.tableLayout.tables.forEach((table, i) => {
+      if (i >= this.tableSprites.length) return;
+      const sprite = this.tableSprites[i];
+      sprite.setTint(table.customerId !== undefined ? 0x66ff66 : 0xffffff);
     });
   }
 

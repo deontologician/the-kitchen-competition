@@ -2,6 +2,12 @@ import Phaser from "phaser";
 import { renderPixelText } from "./renderPixelText";
 import { recordSceneEntry } from "./saveHelpers";
 import { renderTimerBar, formatTimeRemaining } from "./timerBar";
+import { renderPanel } from "./panel";
+import {
+  getActiveRestaurantType,
+  backgroundKey,
+  backgroundAssetPath,
+} from "./restaurantTypeHelper";
 import {
   type DayCycle,
   tickTimer,
@@ -24,14 +30,24 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image("kitchen-bg", "assets/kitchen-bg.png");
+    const type = getActiveRestaurantType(this.registry);
+    const key = backgroundKey(type, "kitchen");
+    if (!this.textures.exists(key)) {
+      this.load.image(key, backgroundAssetPath(type, "kitchen"));
+    }
   }
 
   create(): void {
     recordSceneEntry(this.registry, "KitchenScene");
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    const type = getActiveRestaurantType(this.registry);
     this.add
-      .image(this.scale.width / 2, this.scale.height / 2, "kitchen-bg")
-      .setDisplaySize(this.scale.width, this.scale.height);
+      .image(w / 2, h / 2, backgroundKey(type, "kitchen"))
+      .setDisplaySize(w, h);
+
+    renderPanel(this, { marginTop: 80, marginBottom: 40, marginLeft: 40, marginRight: 40 });
 
     const cycle: DayCycle | undefined = this.registry.get("dayCycle");
     if (cycle === undefined) return;

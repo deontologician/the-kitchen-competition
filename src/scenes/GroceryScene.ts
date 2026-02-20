@@ -4,6 +4,12 @@ import { initialWallet, formatCoins, type Wallet } from "../domain/wallet";
 import { measureLineWidth, createDefaultLayoutConfig } from "../domain/pixel-font";
 import { recordSceneEntry } from "./saveHelpers";
 import { renderTimerBar, formatTimeRemaining } from "./timerBar";
+import { renderPanel } from "./panel";
+import {
+  getActiveRestaurantType,
+  backgroundKey,
+  backgroundAssetPath,
+} from "./restaurantTypeHelper";
 import {
   type DayCycle,
   tickTimer,
@@ -22,14 +28,24 @@ export class GroceryScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image("grocery-bg", "assets/grocery-bg.png");
+    const type = getActiveRestaurantType(this.registry);
+    const key = backgroundKey(type, "grocery");
+    if (!this.textures.exists(key)) {
+      this.load.image(key, backgroundAssetPath(type, "grocery"));
+    }
   }
 
   create(): void {
     recordSceneEntry(this.registry, "GroceryScene");
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    const type = getActiveRestaurantType(this.registry);
     this.add
-      .image(this.scale.width / 2, this.scale.height / 2, "grocery-bg")
-      .setDisplaySize(this.scale.width, this.scale.height);
+      .image(w / 2, h / 2, backgroundKey(type, "grocery"))
+      .setDisplaySize(w, h);
+
+    renderPanel(this, { marginTop: 80, marginBottom: 40, marginLeft: 40, marginRight: 40 });
 
     renderPixelText(this, ["GROCERY STORE"], { centerY: 120 });
 
@@ -38,7 +54,7 @@ export class GroceryScene extends Phaser.Scene {
     const config = createDefaultLayoutConfig();
     const textWidth = measureLineWidth(coinText, config) * config.pixelSize;
     renderPixelText(this, [coinText], {
-      x: this.scale.width - textWidth - config.pixelSize * 5,
+      x: w - textWidth - config.pixelSize * 5,
       y: config.pixelSize * 3,
     });
 
@@ -61,7 +77,6 @@ export class GroceryScene extends Phaser.Scene {
     this.timerGraphics = renderTimerBar(
       this, 100, 50, 600, 24, fraction, { label }
     );
-    // The label text created by renderTimerBar is the last added child
     this.timerLabel = this.children.list[
       this.children.list.length - 1
     ] as Phaser.GameObjects.Text;
