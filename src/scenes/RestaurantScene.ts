@@ -46,6 +46,7 @@ import {
   seatCustomer,
   unseatCustomer,
 } from "../domain/tables";
+import { difficultyForDay } from "../domain/difficulty";
 
 const TABLE_SIZE = 140;
 const TABLE_POSITIONS: ReadonlyArray<{ readonly x: number; readonly y: number }> = [
@@ -65,6 +66,7 @@ export class RestaurantScene extends Phaser.Scene {
   private bubbleObjects: Phaser.GameObjects.GameObject[] = [];
   private dayEndShown = false;
   private tableSprites: Phaser.GameObjects.Image[] = [];
+  private customersSpawned = 0;
 
   constructor() {
     super("RestaurantScene");
@@ -137,10 +139,17 @@ export class RestaurantScene extends Phaser.Scene {
     if (cycle.phase.tag !== "service") return;
 
     this.updateTableTints(cycle.phase);
+    this.customersSpawned = 0;
 
-    // Schedule customer arrivals every 10-15s
+    // Use day-based difficulty for spawn timing
+    const difficulty = difficultyForDay(cycle.day);
+    const spawnDelay =
+      difficulty.customerSpawnMinMs +
+      Math.random() *
+        (difficulty.customerSpawnMaxMs - difficulty.customerSpawnMinMs);
+
     this.customerSpawnTimer = this.time.addEvent({
-      delay: 10_000 + Math.random() * 5_000,
+      delay: spawnDelay,
       callback: () => this.spawnCustomer(),
       loop: true,
     });
@@ -217,15 +226,25 @@ export class RestaurantScene extends Phaser.Scene {
     const cycle: DayCycle | undefined = this.registry.get("dayCycle");
     if (cycle === undefined || cycle.phase.tag !== "service") return;
 
+    // Respect max customers per day
+    const difficulty = difficultyForDay(cycle.day);
+    if (this.customersSpawned >= difficulty.maxCustomersPerDay) return;
+
     const empty = emptyTableIds(cycle.phase.tableLayout);
     if (empty.length === 0) return;
 
     const type = getActiveRestaurantType(this.registry);
     const menuItem = pickRandomDish(type, Math.random());
     const tableId = empty[Math.floor(Math.random() * empty.length)];
-    // Patience varies: 45-75 seconds
-    const patienceMs = 45_000 + Math.floor(Math.random() * 30_000);
+    // Patience from difficulty scaling
+    const patienceMs =
+      difficulty.customerPatienceMinMs +
+      Math.floor(
+        Math.random() *
+          (difficulty.customerPatienceMaxMs - difficulty.customerPatienceMinMs)
+      );
     const customer = createCustomer(crypto.randomUUID(), menuItem.dishId, patienceMs);
+    this.customersSpawned++;
     const updatedLayout = seatCustomer(cycle.phase.tableLayout, tableId, customer.id);
     const updatedPhase = enqueueCustomer(
       { ...cycle.phase, tableLayout: updatedLayout },
