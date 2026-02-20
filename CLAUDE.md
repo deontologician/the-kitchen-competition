@@ -11,7 +11,7 @@ A restaurant management game built with Phaser 3 + TypeScript + Vite. Players co
 
 This separation is non-negotiable. Domain code must be testable without any game framework.
 
-## Development Methodology: Strict TDD
+## Development Methodology: Strict TDD + Post-Feature Refactoring
 
 1. **Tests first, always.** Write a failing test before writing any domain code.
 2. Red → Green → Refactor. No exceptions.
@@ -19,6 +19,16 @@ This separation is non-negotiable. Domain code must be testable without any game
 4. **Commit on green.** After each meaningful green step (tests pass + TS compiles), make a git commit with a descriptive message explaining the *why* of the change.
 5. **After every plan implementation, update this CLAUDE.md** to reflect new/changed modules, scenes, registry keys, and architecture decisions so the documentation stays current.
 6. **Commit at the end of every plan implementation.** Once CLAUDE.md is updated and all tests pass, make a final git commit covering any remaining changes. Every plan should end with a clean working tree (relative to plan-related files).
+
+### Post-Feature Refactoring Phase
+
+After each feature is implemented and proven working (playtested, fun, tests green), run a dedicated refactoring pass:
+
+1. **Discover algebras.** Look for common patterns across the domain — shared shapes, repeated transformations, composable operations. Extract these into clean algebraic structures (e.g., a common `Result<T>` pattern, a `StateTransition<S>` type, composable inventory operations).
+2. **Compactify.** Reduce code volume by finding the elegant core. If three modules do similar things, unify them. If a 50-line function can be a 10-line pipeline, refactor it. The goal is minimal, expressive domain code.
+3. **Strengthen types.** After seeing how the code actually behaves, tighten types — make illegal states unrepresentable, turn stringly-typed IDs into branded types where it helps, use const enums or literal unions instead of loose strings.
+4. **Preserve behavior.** All existing tests must still pass. The refactoring phase changes structure, not behavior. Add new tests only if the refactoring reveals untested invariants.
+5. **Commit the refactoring separately.** Refactoring commits should be clearly labeled as such so they're distinct from feature work in the git history.
 
 ## Coding Conventions
 
