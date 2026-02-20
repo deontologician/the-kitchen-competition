@@ -7,6 +7,7 @@ import {
   formatSlotSummary,
 } from "../domain/save-slots";
 import { createDayCycle } from "../domain/day-cycle";
+import { createInventory } from "../domain/inventory";
 
 export class LoadGameScene extends Phaser.Scene {
   constructor() {
@@ -47,6 +48,7 @@ export class LoadGameScene extends Phaser.Scene {
           this.registry.set("activeSlotId", slot.id);
           this.registry.set("wallet", createWallet(slot.coins));
           this.registry.set("dayCycle", createDayCycle(slot.day));
+          this.registry.set("inventory", createInventory());
           this.scene.start("GroceryScene");
         }
       );

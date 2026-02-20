@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { addMenuButton } from "./renderPixelText";
 import { type Wallet, createWallet } from "../domain/wallet";
+import { createInventory } from "../domain/inventory";
 import {
   type SaveStore,
   type RestaurantType,
@@ -125,6 +126,7 @@ export class TitleScene extends Phaser.Scene {
           this.registry.set("activeSlotId", recent.id);
           this.registry.set("wallet", createWallet(recent.coins));
           this.registry.set("dayCycle", createDayCycle(recent.day));
+          this.registry.set("inventory", createInventory());
           this.scene.start("GroceryScene");
         })
       );
@@ -181,6 +183,7 @@ export class TitleScene extends Phaser.Scene {
     this.registry.set("activeSlotId", id);
     this.registry.set("wallet", createWallet(10));
     this.registry.set("dayCycle", createDayCycle(1));
+    this.registry.set("inventory", createInventory());
     this.scene.start("GroceryScene");
   }
 }
