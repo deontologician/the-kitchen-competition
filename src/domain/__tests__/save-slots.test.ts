@@ -27,14 +27,15 @@ const makeSlot = (overrides: Partial<SaveSlot> = {}): SaveSlot =>
     overrides.day ?? 1,
     overrides.coins ?? 10,
     overrides.scene ?? "GroceryScene",
-    overrides.lastSaved ?? 1000
+    overrides.lastSaved ?? 1000,
+    overrides.unlockedDishes
   );
 
 // --- createSaveSlot ---
 
 describe("createSaveSlot", () => {
   it("constructs a slot with all fields", () => {
-    const slot = createSaveSlot(slotId("abc"), "sushi", 3, 42, "KitchenScene", 9999);
+    const slot = createSaveSlot(slotId("abc"), "sushi", 3, 42, "KitchenScene", 9999, 3);
     expect(slot).toEqual({
       id: "abc",
       restaurantType: "sushi",
@@ -42,6 +43,7 @@ describe("createSaveSlot", () => {
       coins: 42,
       scene: "KitchenScene",
       lastSaved: 9999,
+      unlockedDishes: 3,
     });
   });
 });
@@ -423,6 +425,51 @@ describe("formatSlotSummary", () => {
   });
 });
 
+// --- unlockedDishes ---
+
+describe("unlockedDishes", () => {
+  it("createSaveSlot stores unlockedDishes", () => {
+    const slot = createSaveSlot(slotId("abc"), "sushi", 3, 42, "KitchenScene", 9999, 3);
+    expect(slot.unlockedDishes).toBe(3);
+  });
+
+  it("createSaveSlot defaults unlockedDishes to 5 when omitted", () => {
+    const slot = createSaveSlot(slotId("abc"), "sushi", 3, 42, "KitchenScene", 9999);
+    expect(slot.unlockedDishes).toBe(5);
+  });
+
+  it("roundtrips through serialize/deserialize", () => {
+    const slot = createSaveSlot(slotId("abc"), "burger", 1, 10, "GroceryScene", 1000, 2);
+    const store = addSlot(createSaveStore(), slot);
+    const result = deserializeStore(serializeStore(store));
+    expect(result).toBeDefined();
+    expect(result!.slots[0].unlockedDishes).toBe(2);
+  });
+
+  it("old saves without unlockedDishes field deserialize with unlockedDishes=5", () => {
+    const oldJson = JSON.stringify({
+      version: 2,
+      slots: [{
+        id: "old-slot",
+        restaurantType: "burger",
+        day: 3,
+        coins: 50,
+        scene: "GroceryScene",
+        lastSaved: 1000,
+      }],
+    });
+    const result = deserializeStore(oldJson);
+    expect(result).toBeDefined();
+    expect(result!.slots[0].unlockedDishes).toBe(5);
+  });
+
+  it("v1 migration creates slot with unlockedDishes=5", () => {
+    const v1 = JSON.stringify({ version: 1, coins: 42 });
+    const result = loadStore(v1, slotId("migrated-id"), 5000);
+    expect(result.slots[0].unlockedDishes).toBe(5);
+  });
+});
+
 // --- Property-based tests ---
 
 describe("property-based tests", () => {
@@ -444,9 +491,10 @@ describe("property-based tests", () => {
         "RestaurantScene"
       ),
       lastSaved: fc.nat(Number.MAX_SAFE_INTEGER),
+      unlockedDishes: fc.integer({ min: 1, max: 5 }),
     })
     .map((r) =>
-      createSaveSlot(slotId(r.id), r.restaurantType, r.day, r.coins, r.scene, r.lastSaved)
+      createSaveSlot(slotId(r.id), r.restaurantType, r.day, r.coins, r.scene, r.lastSaved, r.unlockedDishes)
     );
 
   it("serialize/deserialize roundtrips for any valid store", () => {

@@ -6,6 +6,11 @@ import {
   groceryItemsFor,
   availableRecipesFor,
   pickRandomDish,
+  STARTER_DISH_COUNT,
+  unlockedMenuFor,
+  unlockedDishIdsFor,
+  unlockedGroceryItemsFor,
+  unlockedRecipesFor,
 } from "../menu";
 import type { RestaurantType } from "../save-slots";
 import { findItem } from "../items";
@@ -329,5 +334,213 @@ describe("property-based tests", () => {
         });
       })
     );
+  });
+
+  it("pickRandomDish with count=1 always returns the starter", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...TYPES),
+        fc.double({ min: 0, max: 0.9999, noNaN: true }),
+        (type, randomValue) => {
+          const item = pickRandomDish(type, randomValue, 1);
+          expect(item.dishId).toBe(menuFor(type).items[0].dishId);
+        }
+      )
+    );
+  });
+
+  it("pickRandomDish with unlockedCount restricts to unlocked range", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...TYPES),
+        fc.double({ min: 0, max: 0.9999, noNaN: true }),
+        fc.integer({ min: 1, max: 5 }),
+        (type, randomValue, count) => {
+          const item = pickRandomDish(type, randomValue, count);
+          const unlocked = unlockedDishIdsFor(type, count);
+          expect(unlocked).toContain(item.dishId);
+        }
+      )
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Menu ordering — starter dishes
+// ---------------------------------------------------------------------------
+describe("menu ordering", () => {
+  it("burger starter is classic-burger", () => {
+    expect(menuFor("burger").items[0].dishId).toBe(itemId("classic-burger"));
+  });
+
+  it("bbq starter is smoked-ribs-plate", () => {
+    expect(menuFor("bbq").items[0].dishId).toBe(itemId("smoked-ribs-plate"));
+  });
+
+  it("sushi starter is salmon-nigiri", () => {
+    expect(menuFor("sushi").items[0].dishId).toBe(itemId("salmon-nigiri"));
+  });
+
+  it("burger order is classic-burger, cheeseburger, chicken-sandwich, loaded-fries, bacon-cheeseburger", () => {
+    const ids = dishIdsFor("burger");
+    expect(ids).toEqual([
+      itemId("classic-burger"),
+      itemId("cheeseburger"),
+      itemId("chicken-sandwich"),
+      itemId("loaded-fries"),
+      itemId("bacon-cheeseburger"),
+    ]);
+  });
+
+  it("bbq order is smoked-ribs-plate, smoked-chicken-plate, pulled-pork-sandwich, brisket-sandwich, bbq-burger", () => {
+    const ids = dishIdsFor("bbq");
+    expect(ids).toEqual([
+      itemId("smoked-ribs-plate"),
+      itemId("smoked-chicken-plate"),
+      itemId("pulled-pork-sandwich"),
+      itemId("brisket-sandwich"),
+      itemId("bbq-burger"),
+    ]);
+  });
+
+  it("sushi order is salmon-nigiri, miso-soup, tuna-roll, california-roll, tempura-shrimp-roll", () => {
+    const ids = dishIdsFor("sushi");
+    expect(ids).toEqual([
+      itemId("salmon-nigiri"),
+      itemId("miso-soup"),
+      itemId("tuna-roll"),
+      itemId("california-roll"),
+      itemId("tempura-shrimp-roll"),
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STARTER_DISH_COUNT
+// ---------------------------------------------------------------------------
+describe("STARTER_DISH_COUNT", () => {
+  it("is 1", () => {
+    expect(STARTER_DISH_COUNT).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// unlockedMenuFor
+// ---------------------------------------------------------------------------
+describe("unlockedMenuFor", () => {
+  it("returns 1 item when count=1", () => {
+    TYPES.forEach((type) => {
+      const menu = unlockedMenuFor(type, 1);
+      expect(menu.items.length).toBe(1);
+    });
+  });
+
+  it("returns all 5 items when count=5", () => {
+    TYPES.forEach((type) => {
+      const menu = unlockedMenuFor(type, 5);
+      expect(menu.items.length).toBe(5);
+    });
+  });
+
+  it("clamps count to minimum 1", () => {
+    TYPES.forEach((type) => {
+      const menu = unlockedMenuFor(type, 0);
+      expect(menu.items.length).toBe(1);
+    });
+  });
+
+  it("clamps count to maximum items.length", () => {
+    TYPES.forEach((type) => {
+      const menu = unlockedMenuFor(type, 99);
+      expect(menu.items.length).toBe(5);
+    });
+  });
+
+  it("preserves restaurant type", () => {
+    TYPES.forEach((type) => {
+      expect(unlockedMenuFor(type, 3).restaurantType).toBe(type);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// unlockedDishIdsFor
+// ---------------------------------------------------------------------------
+describe("unlockedDishIdsFor", () => {
+  it("returns 1 dish id when count=1", () => {
+    TYPES.forEach((type) => {
+      expect(unlockedDishIdsFor(type, 1).length).toBe(1);
+    });
+  });
+
+  it("returns the starter as the only dish for count=1", () => {
+    expect(unlockedDishIdsFor("burger", 1)).toEqual([itemId("classic-burger")]);
+    expect(unlockedDishIdsFor("bbq", 1)).toEqual([itemId("smoked-ribs-plate")]);
+    expect(unlockedDishIdsFor("sushi", 1)).toEqual([itemId("salmon-nigiri")]);
+  });
+
+  it("returns all 5 for count=5", () => {
+    TYPES.forEach((type) => {
+      expect(unlockedDishIdsFor(type, 5).length).toBe(5);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// unlockedGroceryItemsFor
+// ---------------------------------------------------------------------------
+describe("unlockedGroceryItemsFor", () => {
+  it("returns only raw items for starter dishes", () => {
+    TYPES.forEach((type) => {
+      unlockedGroceryItemsFor(type, 1).forEach((id) => {
+        const item = findItem(id);
+        expect(item).toBeDefined();
+        expect(item!.category).toBe("raw");
+      });
+    });
+  });
+
+  it("sushi starter (salmon-nigiri) needs rice, rice-vinegar, salmon", () => {
+    const items = unlockedGroceryItemsFor("sushi", 1);
+    expect(items).toContain(itemId("rice"));
+    expect(items).toContain(itemId("rice-vinegar"));
+    expect(items).toContain(itemId("salmon"));
+    // Should NOT contain other sushi ingredients
+    expect(items).not.toContain(itemId("nori"));
+    expect(items).not.toContain(itemId("tuna"));
+  });
+
+  it("returns full list for count=5", () => {
+    TYPES.forEach((type) => {
+      const full = groceryItemsFor(type);
+      const unlocked = unlockedGroceryItemsFor(type, 5);
+      expect(new Set(unlocked)).toEqual(new Set(full));
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// unlockedRecipesFor
+// ---------------------------------------------------------------------------
+describe("unlockedRecipesFor", () => {
+  it("returns only recipes reachable from starter dish", () => {
+    TYPES.forEach((type) => {
+      const recipes = unlockedRecipesFor(type, 1);
+      expect(recipes.length).toBeGreaterThan(0);
+      // All recipes should be valid
+      recipes.forEach((r) => {
+        expect(findRecipe(r.id)).toBeDefined();
+      });
+    });
+  });
+
+  it("returns full list for count=5", () => {
+    TYPES.forEach((type) => {
+      const full = availableRecipesFor(type);
+      const unlocked = unlockedRecipesFor(type, 5);
+      expect(new Set(unlocked.map((r) => r.id))).toEqual(
+        new Set(full.map((r) => r.id))
+      );
+    });
   });
 });

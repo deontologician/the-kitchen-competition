@@ -11,6 +11,7 @@ export interface SaveSlot {
   readonly coins: number;
   readonly scene: string;
   readonly lastSaved: number;
+  readonly unlockedDishes: number;
 }
 
 export interface SaveStore {
@@ -39,8 +40,9 @@ export const createSaveSlot = (
   day: number,
   coins: number,
   scene: string,
-  lastSaved: number
-): SaveSlot => ({ id, restaurantType, day, coins, scene, lastSaved });
+  lastSaved: number,
+  unlockedDishes: number = 5
+): SaveSlot => ({ id, restaurantType, day, coins, scene, lastSaved, unlockedDishes });
 
 export const createSaveStore = (): SaveStore => ({
   version: 2,
@@ -107,16 +109,24 @@ export const deserializeStore = (json: string): SaveStore | undefined => {
     if (!rec.slots.every(isValidSlot)) return undefined;
     return {
       version: 2,
-      slots: rec.slots.map((s) =>
-        createSaveSlot(
+      slots: rec.slots.map((s) => {
+        const raw = s as Record<string, unknown>;
+        const unlocked =
+          typeof raw.unlockedDishes === "number" &&
+          Number.isInteger(raw.unlockedDishes) &&
+          raw.unlockedDishes >= 1
+            ? raw.unlockedDishes
+            : 5;
+        return createSaveSlot(
           slotId(s.id),
           s.restaurantType,
           s.day,
           s.coins,
           s.scene,
-          s.lastSaved
-        )
-      ),
+          s.lastSaved,
+          unlocked
+        );
+      }),
     };
   } catch {
     return undefined;
