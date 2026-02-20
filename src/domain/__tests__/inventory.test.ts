@@ -9,6 +9,7 @@ import {
   removeExpired,
   countItem,
   itemCounts,
+  itemFreshness,
   hasIngredientsFor,
   executeRecipeStep,
 } from "../inventory";
@@ -309,6 +310,46 @@ describe("executeRecipeStep", () => {
     expect(countItem(result!, "classic-burger")).toBe(1);
     expect(countItem(result!, "bun")).toBe(0);
     expect(countItem(result!, "grilled-patty")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// itemFreshness
+// ---------------------------------------------------------------------------
+describe("itemFreshness", () => {
+  it("returns 1 for raw items (no shelf life)", () => {
+    const inv = addItem(createInventory(), "bun", 1000);
+    const result = itemFreshness(inv, 50_000);
+    expect(result).toEqual([{ itemId: "bun", freshness: 1 }]);
+  });
+
+  it("returns fraction of remaining shelf life", () => {
+    // grilled-patty has 60s shelf life
+    const inv = addItem(createInventory(), "grilled-patty", 0);
+    const result = itemFreshness(inv, 30_000); // 30s elapsed of 60s
+    expect(result.length).toBe(1);
+    expect(result[0].itemId).toBe("grilled-patty");
+    expect(result[0].freshness).toBeCloseTo(0.5);
+  });
+
+  it("returns 0 for expired items", () => {
+    const inv = addItem(createInventory(), "grilled-patty", 0);
+    const result = itemFreshness(inv, 70_000); // past 60s shelf
+    expect(result[0].freshness).toBe(0);
+  });
+
+  it("aggregates by itemId using minimum freshness", () => {
+    let inv = addItem(createInventory(), "grilled-patty", 0);
+    inv = addItem(inv, "grilled-patty", 30_000);
+    // At t=45_000: first has 15s/60s = 0.25, second has 45s/60s = 0.75
+    // Min is 0.25
+    const result = itemFreshness(inv, 45_000);
+    expect(result.length).toBe(1);
+    expect(result[0].freshness).toBeCloseTo(0.25);
+  });
+
+  it("handles empty inventory", () => {
+    expect(itemFreshness(createInventory(), 1000)).toEqual([]);
   });
 });
 

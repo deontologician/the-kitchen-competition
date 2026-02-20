@@ -92,6 +92,30 @@ export const removeExpired = (
   }),
 });
 
+export interface ItemFreshness {
+  readonly itemId: string;
+  readonly freshness: number; // 0..1, where 1 = fully fresh, 0 = expired
+}
+
+export const itemFreshness = (
+  inv: Inventory,
+  currentTimeMs: number
+): ReadonlyArray<ItemFreshness> => {
+  const minMap = new Map<string, number>();
+  inv.items.forEach((item) => {
+    const def = findItem(item.itemId);
+    const freshness =
+      def === undefined || def.shelfLifeMs === undefined
+        ? 1
+        : Math.max(0, (item.createdAt + def.shelfLifeMs - currentTimeMs) / def.shelfLifeMs);
+    const prev = minMap.get(item.itemId);
+    if (prev === undefined || freshness < prev) {
+      minMap.set(item.itemId, freshness);
+    }
+  });
+  return [...minMap.entries()].map(([itemId, freshness]) => ({ itemId, freshness }));
+};
+
 export const hasIngredientsFor = (
   inv: Inventory,
   step: RecipeStep

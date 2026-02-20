@@ -30,6 +30,7 @@ import {
   countItem,
   hasIngredientsFor,
   removeItemSet,
+  removeExpired,
   itemCounts,
   type Inventory,
 } from "../domain/inventory";
@@ -131,6 +132,17 @@ export class KitchenScene extends Phaser.Scene {
     const updated = tickTimer(cycle, delta);
     this.registry.set("dayCycle", updated);
     if (!isTimedPhase(updated.phase)) return;
+
+    // Expire inventory items past their shelf life
+    const inv: Inventory =
+      this.registry.get("inventory") ?? createInventory();
+    const now = Date.now();
+    const afterExpiry = removeExpired(inv, now);
+    if (afterExpiry.items.length < inv.items.length) {
+      this.registry.set("inventory", afterExpiry);
+      this.renderRecipeList();
+      this.renderInventory();
+    }
 
     // Update recipe progress bar if cooking, clean up if done
     if (this.activeRecipe !== undefined) {

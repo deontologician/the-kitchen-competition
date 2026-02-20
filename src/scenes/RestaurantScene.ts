@@ -38,7 +38,9 @@ import {
   createInventory,
   countItem,
   removeItems,
+  removeExpired,
   itemCounts,
+  itemFreshness,
   type Inventory,
 } from "../domain/inventory";
 import {
@@ -185,6 +187,20 @@ export class RestaurantScene extends Phaser.Scene {
       this.showNotification(
         left === 1 ? "Customer left!" : `${left} customers left!`,
         "#ff6666"
+      );
+    }
+
+    // Expire inventory items past their shelf life
+    const inv: Inventory =
+      this.registry.get("inventory") ?? createInventory();
+    const now = Date.now();
+    const afterExpiry = removeExpired(inv, now);
+    if (afterExpiry.items.length < inv.items.length) {
+      const expired = inv.items.length - afterExpiry.items.length;
+      this.registry.set("inventory", afterExpiry);
+      this.showNotification(
+        expired === 1 ? "An item expired!" : `${expired} items expired!`,
+        "#ff9800"
       );
     }
 
@@ -756,6 +772,12 @@ export class RestaurantScene extends Phaser.Scene {
     const counts = itemCounts(inv);
     if (counts.length === 0) return;
 
+    // Build freshness lookup for color-coding
+    const freshMap = new Map<string, number>();
+    itemFreshness(inv, Date.now()).forEach((f) =>
+      freshMap.set(f.itemId, f.freshness)
+    );
+
     const x = this.scale.width - 30;
     let y = 90;
 
@@ -769,16 +791,20 @@ export class RestaurantScene extends Phaser.Scene {
       return item !== undefined && item.category === "prepped";
     });
 
+    const freshnessColor = (frac: number): string =>
+      frac > 0.5 ? "#ffffff" : frac > 0.25 ? "#ffcc00" : "#ff6644";
+
     const renderEntry = (itemId: string, count: number): void => {
       const item = findItem(itemId);
       const name = item?.name ?? itemId;
-      // Truncate long names
       const display = name.length > 12 ? name.slice(0, 11) + "." : name;
+      const freshness = freshMap.get(itemId) ?? 1;
+      const color = freshnessColor(freshness);
       const label = this.add
         .text(x, y, `${display} x${count}`, {
           fontFamily: "monospace",
           fontSize: "10px",
-          color: "#ffffff",
+          color,
           backgroundColor: "#000000",
           padding: { x: 3, y: 1 },
         })
