@@ -44,6 +44,12 @@ export type Phase =
 // Extract service phase type for sub-phase functions
 export type ServicePhase = Extract<Phase, { readonly tag: "service" }>;
 
+// Phases that have a timer (everything except day_end)
+export type TimedPhase = Exclude<Phase, { readonly tag: "day_end" }>;
+
+export const isTimedPhase = (phase: Phase): phase is TimedPhase =>
+  phase.tag !== "day_end";
+
 export interface DayCycle {
   readonly day: number;
   readonly phase: Phase;

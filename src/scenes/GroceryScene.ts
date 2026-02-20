@@ -1,9 +1,22 @@
 import Phaser from "phaser";
-import { renderPixelText, addNavButton } from "./renderPixelText";
+import { renderPixelText } from "./renderPixelText";
 import { initialWallet, formatCoins, type Wallet } from "../domain/wallet";
 import { measureLineWidth, createDefaultLayoutConfig } from "../domain/pixel-font";
+import { recordSceneEntry } from "./saveHelpers";
+import { renderTimerBar, formatTimeRemaining } from "./timerBar";
+import {
+  type DayCycle,
+  tickTimer,
+  isPhaseTimerExpired,
+  timerFraction,
+  advanceToKitchenPrep,
+  defaultDurations,
+} from "../domain/day-cycle";
 
 export class GroceryScene extends Phaser.Scene {
+  private timerGraphics?: Phaser.GameObjects.Graphics;
+  private timerLabel?: Phaser.GameObjects.Text;
+
   constructor() {
     super("GroceryScene");
   }
@@ -13,6 +26,7 @@ export class GroceryScene extends Phaser.Scene {
   }
 
   create(): void {
+    recordSceneEntry(this.registry, "GroceryScene");
     this.add
       .image(this.scale.width / 2, this.scale.height / 2, "grocery-bg")
       .setDisplaySize(this.scale.width, this.scale.height);
@@ -28,12 +42,34 @@ export class GroceryScene extends Phaser.Scene {
       y: config.pixelSize * 3,
     });
 
-    const centerX = this.scale.width / 2;
-    const buttonY = 300;
-    const spacing = 50;
+    renderPixelText(this, ["SHOPPING..."], { centerY: 320 });
+  }
 
-    addNavButton(this, centerX, buttonY, "Kitchen", "KitchenScene");
-    addNavButton(this, centerX, buttonY + spacing, "Restaurant", "RestaurantScene");
-    addNavButton(this, centerX, buttonY + spacing * 2, "Back to Title", "TitleScene");
+  update(_time: number, delta: number): void {
+    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
+    if (cycle === undefined || cycle.phase.tag !== "grocery") return;
+
+    const updated = tickTimer(cycle, delta);
+    this.registry.set("dayCycle", updated);
+    if (updated.phase.tag !== "grocery") return;
+
+    // Redraw timer bar
+    this.timerGraphics?.destroy();
+    this.timerLabel?.destroy();
+    const fraction = timerFraction(updated.phase);
+    const label = `SHOPPING ${formatTimeRemaining(updated.phase.remainingMs)}`;
+    this.timerGraphics = renderTimerBar(
+      this, 100, 50, 600, 24, fraction, { label }
+    );
+    // The label text created by renderTimerBar is the last added child
+    this.timerLabel = this.children.list[
+      this.children.list.length - 1
+    ] as Phaser.GameObjects.Text;
+
+    if (isPhaseTimerExpired(updated)) {
+      const next = advanceToKitchenPrep(updated, defaultDurations.kitchenPrepMs);
+      this.registry.set("dayCycle", next);
+      this.scene.start("KitchenScene");
+    }
   }
 }

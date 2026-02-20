@@ -22,6 +22,7 @@ import {
   type ServiceSubPhase,
   type Customer,
   type PhaseDurations,
+  isTimedPhase,
 } from "../day-cycle";
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,7 @@ describe("createDayCycle", () => {
     const cycle = createDayCycle(1);
     expect(cycle.day).toBe(1);
     expect(cycle.phase.tag).toBe("grocery");
+    if (!isTimedPhase(cycle.phase)) throw new Error("expected timed phase");
     expect(cycle.phase.remainingMs).toBe(defaultDurations.groceryMs);
     expect(cycle.phase.durationMs).toBe(defaultDurations.groceryMs);
   });
@@ -44,6 +46,7 @@ describe("createDayCycle", () => {
     };
     const cycle = createDayCycle(3, durations);
     expect(cycle.day).toBe(3);
+    if (!isTimedPhase(cycle.phase)) throw new Error("expected timed phase");
     expect(cycle.phase.remainingMs).toBe(5_000);
     expect(cycle.phase.durationMs).toBe(5_000);
   });
@@ -56,12 +59,14 @@ describe("tickTimer", () => {
   it("subtracts elapsed time from remaining", () => {
     const cycle = createDayCycle(1);
     const ticked = tickTimer(cycle, 1_000);
+    if (!isTimedPhase(ticked.phase)) throw new Error("expected timed phase");
     expect(ticked.phase.remainingMs).toBe(defaultDurations.groceryMs - 1_000);
   });
 
   it("clamps at zero", () => {
     const cycle = createDayCycle(1);
     const ticked = tickTimer(cycle, 999_999);
+    if (!isTimedPhase(ticked.phase)) throw new Error("expected timed phase");
     expect(ticked.phase.remainingMs).toBe(0);
   });
 
@@ -152,6 +157,7 @@ describe("advanceToKitchenPrep", () => {
     const cycle = createDayCycle(1);
     const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
     expect(prepped.phase.tag).toBe("kitchen_prep");
+    if (!isTimedPhase(prepped.phase)) throw new Error("expected timed phase");
     expect(prepped.phase.remainingMs).toBe(defaultDurations.kitchenPrepMs);
     expect(prepped.phase.durationMs).toBe(defaultDurations.kitchenPrepMs);
   });
@@ -168,13 +174,11 @@ describe("advanceToService", () => {
     const cycle = createDayCycle(1);
     const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
     const service = advanceToService(prepped, defaultDurations.serviceMs);
-    expect(service.phase.tag).toBe("service");
-    if (service.phase.tag === "service") {
-      expect(service.phase.remainingMs).toBe(defaultDurations.serviceMs);
-      expect(service.phase.subPhase.tag).toBe("waiting_for_customer");
-      expect(service.phase.customersServed).toBe(0);
-      expect(service.phase.customerQueue).toEqual([]);
-    }
+    if (service.phase.tag !== "service") throw new Error("expected service");
+    expect(service.phase.remainingMs).toBe(defaultDurations.serviceMs);
+    expect(service.phase.subPhase.tag).toBe("waiting_for_customer");
+    expect(service.phase.customersServed).toBe(0);
+    expect(service.phase.customerQueue).toEqual([]);
   });
 
   it("preserves day number", () => {
@@ -257,6 +261,7 @@ describe("advanceToNextDay", () => {
     const next = advanceToNextDay(ended);
     expect(next.day).toBe(2);
     expect(next.phase.tag).toBe("grocery");
+    if (!isTimedPhase(next.phase)) throw new Error("expected timed phase");
     expect(next.phase.remainingMs).toBe(defaultDurations.groceryMs);
   });
 
@@ -272,6 +277,7 @@ describe("advanceToNextDay", () => {
     const ended = advanceToDayEnd(service);
     const next = advanceToNextDay(ended, durations);
     expect(next.day).toBe(2);
+    if (!isTimedPhase(next.phase)) throw new Error("expected timed phase");
     expect(next.phase.remainingMs).toBe(5_000);
   });
 });
@@ -524,6 +530,7 @@ describe("property-based tests", () => {
       fc.property(fc.nat({ max: 1_000_000 }), (elapsed) => {
         const cycle = createDayCycle(1);
         const ticked = tickTimer(cycle, elapsed);
+        if (!isTimedPhase(ticked.phase)) throw new Error("expected timed phase");
         expect(ticked.phase.remainingMs).toBeGreaterThanOrEqual(0);
       })
     );
