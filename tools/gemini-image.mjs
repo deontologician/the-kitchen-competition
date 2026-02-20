@@ -164,7 +164,7 @@ async function generateCmd(args) {
   if (!values.prompt) throw new Error("--prompt is required");
   if (!values.output) throw new Error("--output is required");
 
-  const promptSuffix = values.transparent ? " The background must be a single solid color." : "";
+  const promptSuffix = values.transparent ? " The background must be a single solid bright magenta (#FF00FF) color, with no other magenta anywhere in the image." : "";
   const styledPrompt = applyStyle(values.prompt + promptSuffix, values.raw);
   console.error(`Generating image with model ${values.model}...`);
   const accessToken = await getAccessToken();
@@ -207,7 +207,7 @@ async function editCmd(args) {
   if (!values.input) throw new Error("--input is required");
   if (!values.output) throw new Error("--output is required");
 
-  const promptSuffix = values.transparent ? " The background must be a single solid color." : "";
+  const promptSuffix = values.transparent ? " The background must be a single solid bright magenta (#FF00FF) color, with no other magenta anywhere in the image." : "";
   const styledPrompt = applyStyle(values.prompt + promptSuffix, values.raw);
   console.error(`Editing image with model ${values.model}...`);
   const accessToken = await getAccessToken();
@@ -265,7 +265,7 @@ async function animateCmd(args) {
   await mkdir(values["output-dir"], { recursive: true });
 
   const pad = (n) => String(n).padStart(3, "0");
-  const promptSuffix = values.transparent ? " The background must be a single solid color." : "";
+  const promptSuffix = values.transparent ? " The background must be a single solid bright magenta (#FF00FF) color, with no other magenta anywhere in the image." : "";
 
   // Frame 1: generate from text prompt
   const styledPrompt = applyStyle(values.prompt + promptSuffix, values.raw);
