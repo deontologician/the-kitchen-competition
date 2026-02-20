@@ -1,13 +1,12 @@
 import type { ItemId } from "./branded";
 import { itemId } from "./branded";
 import type { RestaurantType } from "./save-slots";
-import { findItem } from "./items";
 import {
-  findRecipe,
   resolveRecipeChain,
   flattenRecipeChain,
+  totalRawIngredients,
 } from "./recipes";
-import type { RecipeStep, RecipeNode } from "./recipes";
+import type { RecipeStep } from "./recipes";
 
 export interface MenuItem {
   readonly dishId: ItemId;
@@ -86,35 +85,6 @@ export const unlockedDishIdsFor = (
 ): ReadonlyArray<ItemId> =>
   unlockedMenuFor(type, count).items.map((mi) => mi.dishId);
 
-const collectRawItems = (node: RecipeNode): ReadonlyArray<ItemId> => {
-  const raws = new Set<ItemId>();
-
-  const visit = (n: RecipeNode): void => {
-    n.step.inputs.forEach((input) => {
-      const item = findItem(input.itemId);
-      if (item !== undefined && item.category === "raw") {
-        raws.add(input.itemId);
-      }
-    });
-    n.children.forEach(visit);
-  };
-
-  visit(node);
-  return [...raws];
-};
-
-export const groceryItemsFor = (
-  type: RestaurantType
-): ReadonlyArray<ItemId> => {
-  const allRaws = new Set<ItemId>();
-  dishIdsFor(type).forEach((dishId) => {
-    const chain = resolveRecipeChain(dishId);
-    if (chain === undefined) return;
-    collectRawItems(chain).forEach((id) => allRaws.add(id));
-  });
-  return [...allRaws];
-};
-
 export const unlockedGroceryItemsFor = (
   type: RestaurantType,
   count: number
@@ -123,33 +93,15 @@ export const unlockedGroceryItemsFor = (
   unlockedDishIdsFor(type, count).forEach((dishId) => {
     const chain = resolveRecipeChain(dishId);
     if (chain === undefined) return;
-    collectRawItems(chain).forEach((id) => allRaws.add(id));
+    totalRawIngredients(chain).forEach((ri) => allRaws.add(ri.itemId));
   });
   return [...allRaws];
 };
 
-const collectRecipeSteps = (node: RecipeNode): ReadonlyArray<RecipeStep> =>
-  flattenRecipeChain(node);
-
-export const availableRecipesFor = (
+export const groceryItemsFor = (
   type: RestaurantType
-): ReadonlyArray<RecipeStep> => {
-  const seen = new Set<ItemId>();
-  const result: RecipeStep[] = [];
-
-  dishIdsFor(type).forEach((dishId) => {
-    const chain = resolveRecipeChain(dishId);
-    if (chain === undefined) return;
-    collectRecipeSteps(chain).forEach((step) => {
-      if (!seen.has(step.id)) {
-        seen.add(step.id);
-        result.push(step);
-      }
-    });
-  });
-
-  return result;
-};
+): ReadonlyArray<ItemId> =>
+  unlockedGroceryItemsFor(type, Infinity);
 
 export const unlockedRecipesFor = (
   type: RestaurantType,
@@ -161,7 +113,7 @@ export const unlockedRecipesFor = (
   unlockedDishIdsFor(type, count).forEach((dishId) => {
     const chain = resolveRecipeChain(dishId);
     if (chain === undefined) return;
-    collectRecipeSteps(chain).forEach((step) => {
+    flattenRecipeChain(chain).forEach((step) => {
       if (!seen.has(step.id)) {
         seen.add(step.id);
         result.push(step);
@@ -171,6 +123,11 @@ export const unlockedRecipesFor = (
 
   return result;
 };
+
+export const availableRecipesFor = (
+  type: RestaurantType
+): ReadonlyArray<RecipeStep> =>
+  unlockedRecipesFor(type, Infinity);
 
 export const shouldUnlockNextDish = (
   customersLost: number,

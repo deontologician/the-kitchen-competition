@@ -221,54 +221,50 @@ export const resolveRecipeChain = (
   return { step: recipeStep, children };
 };
 
+export const foldRecipeTree = <A>(
+  node: RecipeNode,
+  leaf: (step: RecipeStep) => A,
+  merge: (step: RecipeStep, childResults: ReadonlyArray<A>) => A,
+): A => {
+  const seen = new Set<ItemId>();
+  const go = (n: RecipeNode): A => {
+    if (seen.has(n.step.id)) return leaf(n.step);
+    seen.add(n.step.id);
+    return merge(n.step, n.children.map(go));
+  };
+  return go(node);
+};
+
 export const flattenRecipeChain = (
   node: RecipeNode
-): ReadonlyArray<RecipeStep> => {
-  const seen = new Set<ItemId>();
-  const result: RecipeStep[] = [];
-
-  const visit = (n: RecipeNode): void => {
-    if (seen.has(n.step.id)) return;
-    n.children.forEach(visit);
-    seen.add(n.step.id);
-    result.push(n.step);
-  };
-
-  visit(node);
-  return result;
-};
+): ReadonlyArray<RecipeStep> =>
+  foldRecipeTree(
+    node,
+    () => [],
+    (step, children) => [...children.flat(), step],
+  );
 
 export const totalRawIngredients = (
   node: RecipeNode
 ): ReadonlyArray<RecipeInput> => {
-  const accum = new Map<ItemId, number>();
-
-  const visit = (n: RecipeNode): void => {
-    n.step.inputs.forEach((input) => {
-      const item = findItem(input.itemId);
-      if (item !== undefined && item.category === "raw") {
-        accum.set(input.itemId, (accum.get(input.itemId) ?? 0) + input.quantity);
-      }
-    });
-    n.children.forEach(visit);
-  };
-
-  visit(node);
-  return [...accum.entries()].map(([itemId, quantity]) => ({ itemId, quantity }));
+  const accum = foldRecipeTree<ReadonlyArray<RecipeInput>>(
+    node,
+    () => [],
+    (step, children) => {
+      const rawInputs = step.inputs.filter(
+        (i) => findItem(i.itemId)?.category === "raw"
+      );
+      return [...children.flat(), ...rawInputs];
+    },
+  );
+  const map = new Map<ItemId, number>();
+  accum.forEach((i) => map.set(i.itemId, (map.get(i.itemId) ?? 0) + i.quantity));
+  return [...map.entries()].map(([itemId, quantity]) => ({ itemId, quantity }));
 };
 
-export const totalRecipeTime = (node: RecipeNode): number => {
-  const seen = new Set<ItemId>();
-
-  const visit = (n: RecipeNode): number => {
-    if (seen.has(n.step.id)) return 0;
-    seen.add(n.step.id);
-    const childTime = n.children.reduce(
-      (sum, child) => sum + visit(child),
-      0
-    );
-    return n.step.timeMs + childTime;
-  };
-
-  return visit(node);
-};
+export const totalRecipeTime = (node: RecipeNode): number =>
+  foldRecipeTree(
+    node,
+    () => 0,
+    (step, children) => step.timeMs + children.reduce((a, b) => a + b, 0),
+  );
