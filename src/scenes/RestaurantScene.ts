@@ -226,7 +226,8 @@ export class RestaurantScene extends Phaser.Scene {
 
         const cooking = beginCooking(
           current.phase,
-          crypto.randomUUID()
+          crypto.randomUUID(),
+          "classic-burger" // TODO: use actual customer order dish
         );
         const withCooking: DayCycle = { ...current, phase: cooking };
         this.registry.set("dayCycle", withCooking);

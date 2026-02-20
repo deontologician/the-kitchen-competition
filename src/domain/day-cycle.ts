@@ -8,6 +8,7 @@ export interface Customer {
 export interface Order {
   readonly id: string;
   readonly customerId: string;
+  readonly dishId: string;
 }
 
 // Service sub-phases (discriminated union)
@@ -194,14 +195,15 @@ export const beginTakingOrder = (
 
 export const beginCooking = (
   phase: ServicePhase,
-  orderId: string
+  orderId: string,
+  dishId: string
 ): ServicePhase => {
   if (phase.subPhase.tag !== "taking_order") return phase;
   return {
     ...phase,
     subPhase: {
       tag: "cooking",
-      order: { id: orderId, customerId: phase.subPhase.customer.id },
+      order: { id: orderId, customerId: phase.subPhase.customer.id, dishId },
     },
   };
 };

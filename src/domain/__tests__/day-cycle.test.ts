@@ -236,17 +236,17 @@ describe("advanceToDayEnd", () => {
 
     // Serve all 3 customers through the full cycle
     const served1Taking = beginTakingOrder(phase)!;
-    const served1Cooking = beginCooking(served1Taking, "o1");
+    const served1Cooking = beginCooking(served1Taking, "o1", "classic-burger");
     const served1Cooked = finishCooking(served1Cooking);
     const served1Done = finishServing(served1Cooked);
 
     const served2Taking = beginTakingOrder(served1Done)!;
-    const served2Cooking = beginCooking(served2Taking, "o2");
+    const served2Cooking = beginCooking(served2Taking, "o2", "cheeseburger");
     const served2Cooked = finishCooking(served2Cooking);
     const served2Done = finishServing(served2Cooked);
 
     const served3Taking = beginTakingOrder(served2Done)!;
-    const served3Cooking = beginCooking(served3Taking, "o3");
+    const served3Cooking = beginCooking(served3Taking, "o3", "loaded-fries");
     const served3Cooked = finishCooking(served3Cooking);
     const served3Done = finishServing(served3Cooked);
 
@@ -381,12 +381,13 @@ describe("beginCooking", () => {
     const c1: Customer = { id: "c1" };
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
-    const cooking = beginCooking(taking, "order-1");
+    const cooking = beginCooking(taking, "order-1", "classic-burger");
 
     expect(cooking.subPhase.tag).toBe("cooking");
     if (cooking.subPhase.tag === "cooking") {
       expect(cooking.subPhase.order.id).toBe("order-1");
       expect(cooking.subPhase.order.customerId).toBe("c1");
+      expect(cooking.subPhase.order.dishId).toBe("classic-burger");
     }
   });
 });
@@ -401,12 +402,13 @@ describe("finishCooking", () => {
     const c1: Customer = { id: "c1" };
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
-    const cooking = beginCooking(taking, "order-1");
+    const cooking = beginCooking(taking, "order-1", "classic-burger");
     const serving = finishCooking(cooking);
 
     expect(serving.subPhase.tag).toBe("serving");
     if (serving.subPhase.tag === "serving") {
       expect(serving.subPhase.order.id).toBe("order-1");
+      expect(serving.subPhase.order.dishId).toBe("classic-burger");
     }
   });
 });
@@ -421,7 +423,7 @@ describe("finishServing", () => {
     const c1: Customer = { id: "c1" };
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
-    const cooking = beginCooking(taking, "order-1");
+    const cooking = beginCooking(taking, "order-1", "classic-burger");
     const cooked = finishCooking(cooking);
     const done = finishServing(cooked);
 
@@ -441,14 +443,14 @@ describe("finishServing", () => {
 
     // Serve first customer
     const t1 = beginTakingOrder(phase)!;
-    const cook1 = beginCooking(t1, "o1");
+    const cook1 = beginCooking(t1, "o1", "classic-burger");
     const cooked1 = finishCooking(cook1);
     phase = finishServing(cooked1);
     expect(phase.customersServed).toBe(1);
 
     // Serve second customer
     const t2 = beginTakingOrder(phase)!;
-    const cook2 = beginCooking(t2, "o2");
+    const cook2 = beginCooking(t2, "o2", "cheeseburger");
     const cooked2 = finishCooking(cook2);
     phase = finishServing(cooked2);
     expect(phase.customersServed).toBe(2);
@@ -486,7 +488,7 @@ describe("activeSceneForPhase", () => {
     const c1: Customer = { id: "c1" };
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
-    const cooking = beginCooking(taking, "o1");
+    const cooking = beginCooking(taking, "o1", "classic-burger");
     const cookingCycle: DayCycle = { ...service, phase: cooking };
     expect(activeSceneForPhase(cookingCycle.phase)).toBe("KitchenScene");
   });
@@ -513,7 +515,7 @@ describe("activeSceneForPhase", () => {
     const c1: Customer = { id: "c1" };
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
-    const cooking = beginCooking(taking, "o1");
+    const cooking = beginCooking(taking, "o1", "classic-burger");
     const cooked = finishCooking(cooking);
     const servingCycle: DayCycle = { ...service, phase: cooked };
     expect(activeSceneForPhase(servingCycle.phase)).toBe("RestaurantScene");
