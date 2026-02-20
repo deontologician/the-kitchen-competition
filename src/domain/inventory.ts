@@ -72,15 +72,11 @@ export const removeItems = (
 export const removeItemSet = (
   inv: Inventory,
   requirements: ReadonlyArray<{ readonly itemId: ItemId; readonly quantity: number }>
-): Inventory | undefined => {
-  let current: Inventory = inv;
-  for (const req of requirements) {
-    const next = removeItems(current, req.itemId, req.quantity);
-    if (next === undefined) return undefined;
-    current = next;
-  }
-  return current;
-};
+): Inventory | undefined =>
+  requirements.reduce<Inventory | undefined>(
+    (current, req) => current !== undefined ? removeItems(current, req.itemId, req.quantity) : undefined,
+    inv,
+  );
 
 export const removeExpired = (
   inv: Inventory,
