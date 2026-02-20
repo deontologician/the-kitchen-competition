@@ -1,8 +1,11 @@
 import type { SlotId } from "./branded";
 import { slotId } from "./branded";
 import { deserializeSave } from "./save-game";
+import type { RestaurantType } from "./restaurant-type";
+import { restaurantDisplayName } from "./restaurant-type";
 
-export type RestaurantType = "sushi" | "bbq" | "burger";
+export type { RestaurantType } from "./restaurant-type";
+export { restaurantDisplayName } from "./restaurant-type";
 
 export interface SaveSlot {
   readonly id: SlotId;
@@ -26,12 +29,6 @@ const SCENE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   KitchenScene: "Kitchen",
   RestaurantScene: "Restaurant",
   TitleScene: "Title",
-};
-
-const RESTAURANT_DISPLAY_NAMES: Readonly<Record<RestaurantType, string>> = {
-  sushi: "Sushi",
-  bbq: "BBQ",
-  burger: "Burger Joint",
 };
 
 export const createSaveSlot = (
@@ -163,9 +160,6 @@ export const loadStore = (
 
 export const sceneDisplayName = (sceneKey: string): string =>
   SCENE_DISPLAY_NAMES[sceneKey] ?? sceneKey;
-
-export const restaurantDisplayName = (type: RestaurantType): string =>
-  RESTAURANT_DISPLAY_NAMES[type];
 
 export const formatSlotSummary = (slot: SaveSlot): string =>
   `Day ${slot.day} - ${restaurantDisplayName(slot.restaurantType)} - $${slot.coins}`;

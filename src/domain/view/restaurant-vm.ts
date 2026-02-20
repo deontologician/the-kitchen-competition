@@ -4,7 +4,7 @@ import { activeCustomerId } from "../day-cycle";
 import { findItem } from "../items";
 import { countItem, type Inventory } from "../inventory";
 import { unlockedMenuFor } from "../menu";
-import type { RestaurantType } from "../save-slots";
+import type { RestaurantType } from "../restaurant-type";
 import { patienceLevel } from "./format";
 
 export type TableTint = "neutral" | "ok" | "warning" | "critical" | "active";

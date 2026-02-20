@@ -1,5 +1,5 @@
 import type { ItemId } from "../branded";
-import type { RestaurantType } from "../save-slots";
+import type { RestaurantType } from "../restaurant-type";
 import { findItem } from "../items";
 import { countItem, hasIngredientsFor, type Inventory } from "../inventory";
 import { unlockedRecipesFor } from "../menu";

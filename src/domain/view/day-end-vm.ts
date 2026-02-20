@@ -2,7 +2,7 @@ import type { ItemId } from "../branded";
 import type { Phase } from "../day-cycle";
 import { addCoins, type Wallet } from "../wallet";
 import { findItem } from "../items";
-import type { RestaurantType } from "../save-slots";
+import type { RestaurantType } from "../restaurant-type";
 import { shouldUnlockNextDish, unlockedDishIdsFor } from "../menu";
 
 type DayEndPhase = Extract<Phase, { readonly tag: "day_end" }>;

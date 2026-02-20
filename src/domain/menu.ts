@@ -1,6 +1,6 @@
 import type { ItemId } from "./branded";
 import { itemId } from "./branded";
-import type { RestaurantType } from "./save-slots";
+import type { RestaurantType } from "./restaurant-type";
 import {
   resolveRecipeChain,
   flattenRecipeChain,

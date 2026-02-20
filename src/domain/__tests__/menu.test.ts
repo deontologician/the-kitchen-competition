@@ -13,7 +13,7 @@ import {
   unlockedRecipesFor,
   shouldUnlockNextDish,
 } from "../menu";
-import type { RestaurantType } from "../save-slots";
+import type { RestaurantType } from "../restaurant-type";
 import { findItem } from "../items";
 import { findRecipe, allRecipes, resolveRecipeChain } from "../recipes";
 import { itemId, type ItemId } from "../branded";

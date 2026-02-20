@@ -2,7 +2,7 @@ import type { ItemId } from "./branded";
 import type { RecipeInput } from "./recipes";
 import { resolveRecipeChain, totalRawIngredients, totalRecipeTime } from "./recipes";
 import { menuFor, pickRandomDish } from "./menu";
-import type { RestaurantType } from "./save-slots";
+import type { RestaurantType } from "./restaurant-type";
 import { difficultyForDay } from "./difficulty";
 import { findItem } from "./items";
 import { createWallet, addCoins, spendCoins } from "./wallet";
