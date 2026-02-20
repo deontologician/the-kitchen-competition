@@ -65,8 +65,6 @@ const MENUS: Readonly<Record<RestaurantType, MenuDef>> = {
 
 export const STARTER_DISH_COUNT = 1;
 
-export const menuFor = (type: RestaurantType): MenuDef => MENUS[type];
-
 export const unlockedMenuFor = (
   type: RestaurantType,
   count: number
@@ -76,14 +74,17 @@ export const unlockedMenuFor = (
   return { ...menu, items: menu.items.slice(0, clamped) };
 };
 
-export const dishIdsFor = (type: RestaurantType): ReadonlyArray<ItemId> =>
-  MENUS[type].items.map((mi) => mi.dishId);
+export const menuFor = (type: RestaurantType): MenuDef =>
+  unlockedMenuFor(type, Infinity);
 
 export const unlockedDishIdsFor = (
   type: RestaurantType,
   count: number
 ): ReadonlyArray<ItemId> =>
   unlockedMenuFor(type, count).items.map((mi) => mi.dishId);
+
+export const dishIdsFor = (type: RestaurantType): ReadonlyArray<ItemId> =>
+  unlockedDishIdsFor(type, Infinity);
 
 export const unlockedGroceryItemsFor = (
   type: RestaurantType,
