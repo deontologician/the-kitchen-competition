@@ -1,5 +1,5 @@
 import type { ItemId } from "../branded";
-import { findItem } from "../items";
+import { findItem, type ItemCategory } from "../items";
 import { itemCounts, itemFreshness, type Inventory } from "../inventory";
 import { truncateName, freshnessLevel, type FreshnessLevel } from "./format";
 
@@ -19,6 +19,10 @@ export interface InventoryVM {
 
 const DISPLAY_NAME_MAX = 12;
 
+interface TaggedVM extends InventoryItemVM {
+  readonly category: ItemCategory;
+}
+
 export const inventoryVM = (
   inventory: Inventory,
   now: number
@@ -29,35 +33,23 @@ export const inventoryVM = (
     freshMap.set(f.itemId, f.freshness)
   );
 
-  const toVM = (entry: {
-    readonly itemId: ItemId;
-    readonly count: number;
-  }): InventoryItemVM | undefined => {
-    const item = findItem(entry.itemId);
-    if (item === undefined) return undefined;
-    if (item.category !== "dish" && item.category !== "prepped") return undefined;
+  const tagged = counts
+    .map((entry): TaggedVM | undefined => {
+      const item = findItem(entry.itemId);
+      if (item === undefined) return undefined;
+      if (item.category !== "dish" && item.category !== "prepped") return undefined;
+      return {
+        itemId: entry.itemId,
+        displayName: truncateName(item.name, DISPLAY_NAME_MAX),
+        count: entry.count,
+        freshness: freshnessLevel(freshMap.get(entry.itemId) ?? 1),
+        category: item.category,
+      };
+    })
+    .filter((vm): vm is TaggedVM => vm !== undefined);
 
-    return {
-      itemId: entry.itemId,
-      displayName: truncateName(item.name, DISPLAY_NAME_MAX),
-      count: entry.count,
-      freshness: freshnessLevel(freshMap.get(entry.itemId) ?? 1),
-    };
-  };
-
-  const allVMs = counts
-    .map(toVM)
-    .filter((vm): vm is InventoryItemVM => vm !== undefined);
-
-  const dishes = allVMs.filter((vm) => {
-    const item = findItem(vm.itemId);
-    return item !== undefined && item.category === "dish";
-  });
-
-  const prepped = allVMs.filter((vm) => {
-    const item = findItem(vm.itemId);
-    return item !== undefined && item.category === "prepped";
-  });
+  const dishes = tagged.filter((vm) => vm.category === "dish");
+  const prepped = tagged.filter((vm) => vm.category === "prepped");
 
   return {
     dishes,
