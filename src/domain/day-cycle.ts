@@ -1,3 +1,5 @@
+import { type TableLayout, createTableLayout } from "./tables";
+
 // Stubbed for future mechanics
 export interface Customer {
   readonly id: string;
@@ -34,6 +36,7 @@ export type Phase =
       readonly subPhase: ServiceSubPhase;
       readonly customersServed: number;
       readonly customerQueue: ReadonlyArray<Customer>;
+      readonly tableLayout: TableLayout;
     }
   | {
       readonly tag: "day_end";
@@ -131,7 +134,8 @@ export const advanceToKitchenPrep = (
 
 export const advanceToService = (
   cycle: DayCycle,
-  durationMs: number
+  durationMs: number,
+  tables: number = 4
 ): DayCycle => ({
   ...cycle,
   phase: {
@@ -141,6 +145,7 @@ export const advanceToService = (
     subPhase: { tag: "waiting_for_customer" },
     customersServed: 0,
     customerQueue: [],
+    tableLayout: createTableLayout(tables),
   },
 });
 

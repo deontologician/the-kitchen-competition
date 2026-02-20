@@ -24,6 +24,7 @@ import {
   type PhaseDurations,
   isTimedPhase,
 } from "../day-cycle";
+import { tableCount } from "../tables";
 
 // ---------------------------------------------------------------------------
 // createDayCycle
@@ -186,6 +187,22 @@ describe("advanceToService", () => {
     const prepped = advanceToKitchenPrep(cycle, 10_000);
     const service = advanceToService(prepped, 60_000);
     expect(service.day).toBe(2);
+  });
+
+  it("creates tableLayout with default 4 tables", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+    expect(tableCount(service.phase.tableLayout)).toBe(4);
+  });
+
+  it("creates tableLayout with explicit table count", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs, 6);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+    expect(tableCount(service.phase.tableLayout)).toBe(6);
   });
 });
 
