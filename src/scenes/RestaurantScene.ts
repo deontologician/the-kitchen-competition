@@ -50,6 +50,11 @@ import {
   unseatCustomer,
 } from "../domain/tables";
 import { difficultyForDay } from "../domain/difficulty";
+import {
+  type Leaderboard,
+  createLeaderboard,
+  recordDayResult,
+} from "../domain/leaderboard";
 
 const TABLE_SIZE = 140;
 const TABLE_POSITIONS: ReadonlyArray<{ readonly x: number; readonly y: number }> = [
@@ -623,6 +628,14 @@ export class RestaurantScene extends Phaser.Scene {
     const lost = cycle.phase.customersLost;
     const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
     const newWallet = addCoins(wallet, earnings);
+
+    // Record to leaderboard
+    const lb: Leaderboard =
+      this.registry.get("leaderboard") ?? createLeaderboard();
+    this.registry.set(
+      "leaderboard",
+      recordDayResult(lb, { served, earnings })
+    );
 
     let yPos = centerY - 30;
 

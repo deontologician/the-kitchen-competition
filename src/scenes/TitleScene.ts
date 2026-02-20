@@ -17,6 +17,12 @@ import {
 import { SAVE_KEY } from "../domain/save-game";
 import { createDayCycle, type DayCycle } from "../domain/day-cycle";
 import { recordDayAdvance } from "./saveHelpers";
+import {
+  type Leaderboard,
+  createLeaderboard,
+  deserializeLeaderboard,
+  serializeLeaderboard,
+} from "../domain/leaderboard";
 
 export class TitleScene extends Phaser.Scene {
   private _autoSaveRegistered = false;
@@ -42,6 +48,11 @@ export class TitleScene extends Phaser.Scene {
     const raw = localStorage.getItem(SAVE_KEY);
     const store = loadStore(raw, crypto.randomUUID(), Date.now());
     this.registry.set("saveStore", store);
+
+    // Load leaderboard
+    const lbRaw = localStorage.getItem("the-kitchen-competition-lb");
+    const lb = (lbRaw !== null ? deserializeLeaderboard(lbRaw) : undefined) ?? createLeaderboard();
+    this.registry.set("leaderboard", lb);
   }
 
   private registerAutoSave(): void {
@@ -84,6 +95,16 @@ export class TitleScene extends Phaser.Scene {
         recordDayAdvance(this.registry, value.day);
       }
     );
+
+    this.registry.events.on(
+      "changedata-leaderboard",
+      (_parent: unknown, value: Leaderboard) => {
+        localStorage.setItem(
+          "the-kitchen-competition-lb",
+          serializeLeaderboard(value)
+        );
+      }
+    );
   }
 
   private renderBackground(): void {
@@ -115,6 +136,26 @@ export class TitleScene extends Phaser.Scene {
       })
     );
     buttonY += spacing;
+
+    // Show leaderboard stats if any games played
+    const lb: Leaderboard =
+      this.registry.get("leaderboard") ?? createLeaderboard();
+    if (lb.totalDaysPlayed > 0) {
+      const statsText = [
+        `Best Day: ${lb.bestDayServed} served / $${lb.bestDayEarnings}`,
+        `Total: ${lb.totalCustomersServed} served / ${lb.totalDaysPlayed} days`,
+      ].join("  |  ");
+      this.add
+        .text(centerX, this.scale.height - 40, statsText, {
+          fontFamily: "monospace",
+          fontSize: "9px",
+          color: "#88aacc",
+          backgroundColor: "#0a0a1e",
+          padding: { x: 8, y: 3 },
+        })
+        .setOrigin(0.5)
+        .setAlpha(0.8);
+    }
 
     if (hasSaves) {
       menuObjects.push(
