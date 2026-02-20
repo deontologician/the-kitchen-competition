@@ -63,6 +63,31 @@ export const renderPixelText = (
   });
 };
 
+export const addMenuButton = (
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  label: string,
+  onClick: () => void
+): Phaser.GameObjects.Text => {
+  const button = scene.add
+    .text(x, y, label, {
+      fontFamily: "monospace",
+      fontSize: "16px",
+      color: "#f5a623",
+      backgroundColor: "#2a2a3e",
+      padding: { x: 12, y: 8 },
+    })
+    .setOrigin(0.5)
+    .setInteractive({ useHandCursor: true });
+
+  button.on("pointerover", () => button.setStyle({ color: "#ffffff" }));
+  button.on("pointerout", () => button.setStyle({ color: "#f5a623" }));
+  button.on("pointerdown", onClick);
+
+  return button;
+};
+
 export const addNavButton = (
   scene: Phaser.Scene,
   x: number,
