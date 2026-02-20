@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
 import {
   createDayCycle,
+  createCustomer,
   tickTimer,
   isPhaseTimerExpired,
   timerFraction,
@@ -16,6 +17,8 @@ import {
   finishServing,
   abandonOrder,
   activeCustomerId,
+  tickCustomerPatience,
+  removeExpiredCustomers,
   activeSceneForPhase,
   defaultDurations,
   type DayCycle,
@@ -25,7 +28,7 @@ import {
   type PhaseDurations,
   isTimedPhase,
 } from "../day-cycle";
-import { tableCount } from "../tables";
+import { tableCount, seatCustomer } from "../tables";
 
 // ---------------------------------------------------------------------------
 // createDayCycle
@@ -228,9 +231,9 @@ describe("advanceToDayEnd", () => {
 
     // Simulate serving 3 customers with different sell prices
     if (service.phase.tag !== "service") throw new Error("expected service");
-    const customer1: Customer = { id: "c1", dishId: "classic-burger" };
-    const customer2: Customer = { id: "c2", dishId: "bacon-cheeseburger" };
-    const customer3: Customer = { id: "c3", dishId: "miso-soup" };
+    const customer1 = createCustomer("c1", "classic-burger");
+    const customer2 = createCustomer("c2", "bacon-cheeseburger");
+    const customer3 = createCustomer("c3", "miso-soup");
 
     let phase = enqueueCustomer(service.phase, customer1);
     phase = enqueueCustomer(phase, customer2);
@@ -311,7 +314,7 @@ describe("enqueueCustomer", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const customer: Customer = { id: "c1", dishId: "classic-burger" };
+    const customer = createCustomer("c1", "classic-burger");
     const updated = enqueueCustomer(service.phase, customer);
     expect(updated.customerQueue).toEqual([customer]);
     expect(updated.customerQueue[0].dishId).toBe("classic-burger");
@@ -323,8 +326,8 @@ describe("enqueueCustomer", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
-    const c2: Customer = { id: "c2", dishId: "cheeseburger" };
+    const c1 = createCustomer("c1", "classic-burger");
+    const c2 = createCustomer("c2", "cheeseburger");
     const q1 = enqueueCustomer(service.phase, c1);
     const q2 = enqueueCustomer(q1, c2);
     expect(q2.customerQueue).toEqual([c1, c2]);
@@ -338,8 +341,8 @@ describe("beginTakingOrder", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
-    const c2: Customer = { id: "c2", dishId: "cheeseburger" };
+    const c1 = createCustomer("c1", "classic-burger");
+    const c2 = createCustomer("c2", "cheeseburger");
     const queued = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
     const taking = beginTakingOrder(queued);
 
@@ -366,7 +369,7 @@ describe("beginTakingOrder", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     // Already in taking_order, can't begin again
@@ -381,7 +384,7 @@ describe("beginCooking", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "order-1", "classic-burger");
@@ -402,7 +405,7 @@ describe("finishCooking", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "order-1", "classic-burger");
@@ -423,7 +426,7 @@ describe("abandonOrder", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const abandoned = abandonOrder(taking);
@@ -438,7 +441,7 @@ describe("abandonOrder", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "o1", "classic-burger");
@@ -454,7 +457,7 @@ describe("abandonOrder", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     expect(activeCustomerId(taking)).toBe("c1");
@@ -466,7 +469,7 @@ describe("abandonOrder", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "o1", "classic-burger");
@@ -497,7 +500,7 @@ describe("abandonOrder", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "o1", "classic-burger");
@@ -516,7 +519,7 @@ describe("finishServing", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "order-1", "classic-burger");
@@ -534,8 +537,8 @@ describe("finishServing", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
-    const c2: Customer = { id: "c2", dishId: "cheeseburger" };
+    const c1 = createCustomer("c1", "classic-burger");
+    const c2 = createCustomer("c2", "cheeseburger");
     let phase = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
 
     // Serve first customer (classic-burger @ $5)
@@ -561,8 +564,8 @@ describe("finishServing", () => {
     const service = advanceToService(prepped, defaultDurations.serviceMs);
     if (service.phase.tag !== "service") throw new Error("expected service");
 
-    const c1: Customer = { id: "c1", dishId: "miso-soup" };
-    const c2: Customer = { id: "c2", dishId: "california-roll" };
+    const c1 = createCustomer("c1", "miso-soup");
+    const c2 = createCustomer("c2", "california-roll");
     let phase = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
 
     // Serve miso soup @ $2
@@ -610,7 +613,7 @@ describe("activeSceneForPhase", () => {
       60_000
     );
     if (service.phase.tag !== "service") throw new Error("expected service");
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "o1", "classic-burger");
@@ -624,7 +627,7 @@ describe("activeSceneForPhase", () => {
       60_000
     );
     if (service.phase.tag !== "service") throw new Error("expected service");
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const takingCycle: DayCycle = { ...service, phase: taking };
@@ -637,7 +640,7 @@ describe("activeSceneForPhase", () => {
       60_000
     );
     if (service.phase.tag !== "service") throw new Error("expected service");
-    const c1: Customer = { id: "c1", dishId: "classic-burger" };
+    const c1 = createCustomer("c1", "classic-burger");
     const queued = enqueueCustomer(service.phase, c1);
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "o1", "classic-burger");
@@ -673,6 +676,121 @@ describe("earnings accumulation", () => {
     if (ended.phase.tag !== "day_end") throw new Error("expected day_end");
     expect(ended.phase.earnings).toBe(0);
     expect(ended.phase.customersServed).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Customer patience
+// ---------------------------------------------------------------------------
+describe("createCustomer", () => {
+  it("creates a customer with default patience (60s)", () => {
+    const c = createCustomer("c1", "classic-burger");
+    expect(c.id).toBe("c1");
+    expect(c.dishId).toBe("classic-burger");
+    expect(c.patienceMs).toBe(60_000);
+    expect(c.maxPatienceMs).toBe(60_000);
+  });
+
+  it("accepts custom patience", () => {
+    const c = createCustomer("c1", "miso-soup", 30_000);
+    expect(c.patienceMs).toBe(30_000);
+    expect(c.maxPatienceMs).toBe(30_000);
+  });
+});
+
+describe("tickCustomerPatience", () => {
+  it("reduces patience of queued customers", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    const c1 = createCustomer("c1", "classic-burger", 30_000);
+    const c2 = createCustomer("c2", "cheeseburger", 45_000);
+    const phase = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
+
+    const ticked = tickCustomerPatience(phase, 10_000);
+    expect(ticked.customerQueue[0].patienceMs).toBe(20_000);
+    expect(ticked.customerQueue[1].patienceMs).toBe(35_000);
+  });
+
+  it("clamps patience at zero", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    const c1 = createCustomer("c1", "classic-burger", 5_000);
+    const phase = enqueueCustomer(service.phase, c1);
+
+    const ticked = tickCustomerPatience(phase, 99_000);
+    expect(ticked.customerQueue[0].patienceMs).toBe(0);
+  });
+
+  it("does not affect active customer (not in queue)", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    const c1 = createCustomer("c1", "classic-burger", 30_000);
+    const c2 = createCustomer("c2", "cheeseburger", 45_000);
+    const queued = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
+    const taking = beginTakingOrder(queued)!;
+
+    // c1 is now active (taking_order), c2 is in queue
+    const ticked = tickCustomerPatience(taking, 10_000);
+    // Only c2 in queue should be ticked
+    expect(ticked.customerQueue.length).toBe(1);
+    expect(ticked.customerQueue[0].patienceMs).toBe(35_000);
+  });
+});
+
+describe("removeExpiredCustomers", () => {
+  it("removes customers with zero patience from queue", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    const c1 = createCustomer("c1", "classic-burger", 0); // already expired
+    const c2 = createCustomer("c2", "cheeseburger", 30_000);
+    const phase = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
+
+    const cleaned = removeExpiredCustomers(phase);
+    expect(cleaned.customerQueue.length).toBe(1);
+    expect(cleaned.customerQueue[0].id).toBe("c2");
+  });
+
+  it("unseats expired customers from tables", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    // Manually seat and enqueue an expired customer
+    const c1 = createCustomer("c1", "classic-burger", 0);
+    const seatedLayout = seatCustomer(service.phase.tableLayout, service.phase.tableLayout.tables[0].id, "c1");
+    const withSeat = { ...service.phase, tableLayout: seatedLayout };
+    const queued = enqueueCustomer(withSeat, c1);
+
+    const cleaned = removeExpiredCustomers(queued);
+    // Customer should be removed from queue AND unseated
+    expect(cleaned.customerQueue.length).toBe(0);
+    expect(cleaned.tableLayout.tables[0].customerId).toBeUndefined();
+  });
+
+  it("keeps customers with remaining patience", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    const c1 = createCustomer("c1", "classic-burger", 30_000);
+    const phase = enqueueCustomer(service.phase, c1);
+
+    const cleaned = removeExpiredCustomers(phase);
+    expect(cleaned.customerQueue.length).toBe(1);
   });
 });
 
@@ -728,8 +846,8 @@ describe("property-based tests", () => {
           if (service.phase.tag !== "service")
             throw new Error("expected service");
 
-          const c1: Customer = { id: "c1", dishId: "dish-a" };
-          const c2: Customer = { id: "c2", dishId: "dish-b" };
+          const c1 = createCustomer("c1", "dish-a");
+          const c2 = createCustomer("c2", "dish-b");
           let phase = enqueueCustomer(
             enqueueCustomer(service.phase, c1),
             c2

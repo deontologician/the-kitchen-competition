@@ -1,9 +1,24 @@
-import { type TableLayout, createTableLayout } from "./tables";
+import { type TableLayout, createTableLayout, unseatCustomer } from "./tables";
 
 export interface Customer {
   readonly id: string;
   readonly dishId: string;
+  readonly patienceMs: number;
+  readonly maxPatienceMs: number;
 }
+
+export const DEFAULT_PATIENCE_MS = 60_000;
+
+export const createCustomer = (
+  id: string,
+  dishId: string,
+  patienceMs: number = DEFAULT_PATIENCE_MS
+): Customer => ({
+  id,
+  dishId,
+  patienceMs,
+  maxPatienceMs: patienceMs,
+});
 
 export interface Order {
   readonly id: string;
@@ -256,6 +271,33 @@ export const finishServing = (
     customersServed: phase.customersServed + 1,
     earnings: phase.earnings + dishEarnings,
   };
+};
+
+// ---------------------------------------------------------------------------
+// Customer patience
+// ---------------------------------------------------------------------------
+
+export const tickCustomerPatience = (
+  phase: ServicePhase,
+  elapsedMs: number
+): ServicePhase => ({
+  ...phase,
+  customerQueue: phase.customerQueue.map((c) => ({
+    ...c,
+    patienceMs: Math.max(0, c.patienceMs - elapsedMs),
+  })),
+});
+
+export const removeExpiredCustomers = (
+  phase: ServicePhase
+): ServicePhase => {
+  const expired = phase.customerQueue.filter((c) => c.patienceMs <= 0);
+  const remaining = phase.customerQueue.filter((c) => c.patienceMs > 0);
+  const updatedLayout = expired.reduce(
+    (layout, c) => unseatCustomer(layout, c.id),
+    phase.tableLayout
+  );
+  return { ...phase, customerQueue: remaining, tableLayout: updatedLayout };
 };
 
 // ---------------------------------------------------------------------------

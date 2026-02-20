@@ -14,8 +14,8 @@ import {
 } from "./restaurantTypeHelper";
 import {
   type DayCycle,
-  type Customer,
   type ServicePhase,
+  createCustomer,
   tickTimer,
   isPhaseTimerExpired,
   timerFraction,
@@ -27,6 +27,8 @@ import {
   finishServing,
   abandonOrder,
   activeCustomerId,
+  tickCustomerPatience,
+  removeExpiredCustomers,
   defaultDurations,
 } from "../domain/day-cycle";
 import { pickRandomDish, menuFor } from "../domain/menu";
@@ -148,15 +150,20 @@ export class RestaurantScene extends Phaser.Scene {
     if (cycle.phase.tag === "day_end") return;
     if (cycle.phase.tag !== "service") return;
 
-    const updated = tickTimer(cycle, delta);
+    const ticked = tickTimer(cycle, delta);
+    if (ticked.phase.tag !== "service") return;
+
+    // Tick customer patience and remove expired customers
+    const withPatience = tickCustomerPatience(ticked.phase, delta);
+    const servicePhase = removeExpiredCustomers(withPatience);
+    const updated: DayCycle = { ...ticked, phase: servicePhase };
     this.registry.set("dayCycle", updated);
-    if (updated.phase.tag !== "service") return;
 
     // Redraw timer bar
     this.timerGraphics?.destroy();
     this.timerLabel?.destroy();
-    const fraction = timerFraction(updated.phase);
-    const label = `SERVICE ${formatTimeRemaining(updated.phase.remainingMs)}`;
+    const fraction = timerFraction(servicePhase);
+    const label = `SERVICE ${formatTimeRemaining(servicePhase.remainingMs)}`;
     this.timerGraphics = renderTimerBar(
       this, 100, 50, 600, 24, fraction, { label }
     );
@@ -164,7 +171,7 @@ export class RestaurantScene extends Phaser.Scene {
       this.children.list.length - 1
     ] as Phaser.GameObjects.Text;
 
-    this.updateTableTints(updated.phase);
+    this.updateTableTints(servicePhase);
     this.renderInventorySidebar();
 
     if (isPhaseTimerExpired(updated)) {
@@ -211,10 +218,9 @@ export class RestaurantScene extends Phaser.Scene {
     const type = getActiveRestaurantType(this.registry);
     const menuItem = pickRandomDish(type, Math.random());
     const tableId = empty[Math.floor(Math.random() * empty.length)];
-    const customer: Customer = {
-      id: crypto.randomUUID(),
-      dishId: menuItem.dishId,
-    };
+    // Patience varies: 45-75 seconds
+    const patienceMs = 45_000 + Math.floor(Math.random() * 30_000);
+    const customer = createCustomer(crypto.randomUUID(), menuItem.dishId, patienceMs);
     const updatedLayout = seatCustomer(cycle.phase.tableLayout, tableId, customer.id);
     const updatedPhase = enqueueCustomer(
       { ...cycle.phase, tableLayout: updatedLayout },
@@ -536,10 +542,42 @@ export class RestaurantScene extends Phaser.Scene {
   }
 
   private updateTableTints(phase: ServicePhase): void {
+    // Build a lookup of customer patience by customerId
+    const patienceMap = new Map<string, { patienceMs: number; maxPatienceMs: number }>();
+    phase.customerQueue.forEach((c) => {
+      patienceMap.set(c.id, { patienceMs: c.patienceMs, maxPatienceMs: c.maxPatienceMs });
+    });
+    // Also check active customer
+    const activeId = activeCustomerId(phase);
+
     phase.tableLayout.tables.forEach((table, i) => {
       if (i >= this.tableSprites.length) return;
       const sprite = this.tableSprites[i];
-      sprite.setTint(table.customerId !== undefined ? 0x66ff66 : 0xffffff);
+      if (table.customerId === undefined) {
+        sprite.setTint(0xffffff);
+        return;
+      }
+
+      // Active customer (being served) = blue tint
+      if (table.customerId === activeId) {
+        sprite.setTint(0x6699ff);
+        return;
+      }
+
+      // Queued customer — color by patience
+      const patience = patienceMap.get(table.customerId);
+      if (patience === undefined || patience.maxPatienceMs === 0) {
+        sprite.setTint(0x66ff66);
+        return;
+      }
+      const fraction = patience.patienceMs / patience.maxPatienceMs;
+      if (fraction > 0.5) {
+        sprite.setTint(0x66ff66); // green
+      } else if (fraction > 0.25) {
+        sprite.setTint(0xffff66); // yellow
+      } else {
+        sprite.setTint(0xff6666); // red
+      }
     });
   }
 
