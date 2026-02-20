@@ -33,9 +33,10 @@ import {
   unseatCustomer,
 } from "../domain/tables";
 
+const TABLE_SIZE = 140;
 const TABLE_POSITIONS: ReadonlyArray<{ readonly x: number; readonly y: number }> = [
-  { x: 200, y: 300 }, { x: 400, y: 300 }, { x: 600, y: 300 },
-  { x: 200, y: 450 }, { x: 400, y: 450 }, { x: 600, y: 450 },
+  { x: 180, y: 290 }, { x: 400, y: 290 }, { x: 620, y: 290 },
+  { x: 180, y: 460 }, { x: 400, y: 460 }, { x: 620, y: 460 },
 ];
 
 export class RestaurantScene extends Phaser.Scene {
@@ -84,7 +85,7 @@ export class RestaurantScene extends Phaser.Scene {
         : 4;
 
     TABLE_POSITIONS.slice(0, numTables).forEach((pos) => {
-      const sprite = this.add.image(pos.x, pos.y, tKey).setDisplaySize(96, 96);
+      const sprite = this.add.image(pos.x, pos.y, tKey).setDisplaySize(TABLE_SIZE, TABLE_SIZE);
       this.tableSprites.push(sprite);
     });
 
@@ -93,6 +94,11 @@ export class RestaurantScene extends Phaser.Scene {
     renderPixelText(this, ["RESTAURANT"], { centerY: 120 });
 
     this.renderCoinHud();
+
+    this.input.keyboard!.on("keydown-ESC", () => {
+      this.scene.pause();
+      this.scene.launch("PauseScene", { callerScene: "RestaurantScene" });
+    });
 
     if (cycle === undefined) return;
 

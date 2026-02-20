@@ -59,6 +59,11 @@ export class GroceryScene extends Phaser.Scene {
     });
 
     renderPixelText(this, ["SHOPPING..."], { centerY: 320 });
+
+    this.input.keyboard!.on("keydown-ESC", () => {
+      this.scene.pause();
+      this.scene.launch("PauseScene", { callerScene: "GroceryScene" });
+    });
   }
 
   update(_time: number, delta: number): void {

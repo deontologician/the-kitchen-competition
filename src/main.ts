@@ -4,6 +4,7 @@ import { GroceryScene } from "./scenes/GroceryScene";
 import { KitchenScene } from "./scenes/KitchenScene";
 import { RestaurantScene } from "./scenes/RestaurantScene";
 import { LoadGameScene } from "./scenes/LoadGameScene";
+import { PauseScene } from "./scenes/PauseScene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -11,7 +12,7 @@ const config: Phaser.Types.Core.GameConfig = {
   height: 600,
   backgroundColor: "#1d1d2e",
   pixelArt: true,
-  scene: [TitleScene, GroceryScene, KitchenScene, RestaurantScene, LoadGameScene],
+  scene: [TitleScene, GroceryScene, KitchenScene, RestaurantScene, LoadGameScene, PauseScene],
 };
 
 new Phaser.Game(config);

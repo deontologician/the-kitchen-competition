@@ -76,6 +76,11 @@ export class KitchenScene extends Phaser.Scene {
         this.scene.start("RestaurantScene");
       });
     }
+
+    this.input.keyboard!.on("keydown-ESC", () => {
+      this.scene.pause();
+      this.scene.launch("PauseScene", { callerScene: "KitchenScene" });
+    });
   }
 
   update(_time: number, delta: number): void {
