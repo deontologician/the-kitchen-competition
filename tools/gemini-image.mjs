@@ -73,17 +73,81 @@ function detectMimeType(base64) {
   return "image/png";
 }
 
+async function sampleCornerColors(filePath) {
+  // Get image dimensions
+  const { stdout: sizeOut } = await execFileAsync("magick", [
+    "identify", "-format", "%w %h", filePath,
+  ]);
+  const [w, h] = sizeOut.trim().split(" ").map(Number);
+
+  // Sample the four corner pixels in parallel
+  const corners = await Promise.all(
+    [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]].map(async ([x, y]) => {
+      const { stdout } = await execFileAsync("magick", [
+        filePath, "-crop", `1x1+${x}+${y}`, "+repage", "-depth", "8", "txt:-",
+      ]);
+      const match = stdout.match(/#([0-9A-Fa-f]{6})/);
+      return match ? match[1] : undefined;
+    })
+  );
+
+  return corners.filter((c) => c !== undefined);
+}
+
+function hexToRgb(hex) {
+  return [
+    parseInt(hex.slice(0, 2), 16),
+    parseInt(hex.slice(2, 4), 16),
+    parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+function rgbToHex([r, g, b]) {
+  return [r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("");
+}
+
 async function removeBackground(filePath) {
-  // Use ImageMagick to flood-fill corners with transparency, then trim.
-  // For pixel art with a solid/checkerboard background this works well:
-  // 1. Convert to RGBA
-  // 2. Flood-fill from all four corners with transparency (fuzz handles near-white/checkerboard)
-  // 3. Flatten any remaining checkerboard artifacts
-  console.error("Removing background with ImageMagick...");
+  // Two-pass background removal:
+  // 1. Sample corners to detect bg color, then global chroma key (catches trapped bg)
+  // 2. Flood-fill from corners with higher fuzz (catches anti-aliased edges)
+  console.error("Removing background via chroma key...");
+
+  const colors = await sampleCornerColors(filePath);
+  if (colors.length === 0) {
+    console.error("Warning: could not sample corner colors, skipping");
+    return;
+  }
+
+  // Average the corner colors to find the key target
+  const rgbs = colors.map(hexToRgb);
+  const avg = rgbs
+    .reduce(([ar, ag, ab], [r, g, b]) => [ar + r, ag + g, ab + b], [0, 0, 0])
+    .map((c) => Math.round(c / rgbs.length));
+  const targetHex = rgbToHex(avg);
+
+  // Fuzz = max deviation from average across corners + 10% margin, clamped 15-30%
+  const maxDist = Math.max(
+    ...rgbs.map(([r, g, b]) =>
+      Math.sqrt((r - avg[0]) ** 2 + (g - avg[1]) ** 2 + (b - avg[2]) ** 2)
+    )
+  );
+  const fuzz = Math.min(Math.max(Math.ceil((maxDist / 441.67) * 100) + 10, 20), 35);
+
+  console.error(`Background: #${targetHex} (corners: ${colors.join(", ")}, fuzz: ${fuzz}%)`);
+
+  // Pass 1: Global chroma key — replaces ALL matching pixels including trapped regions
   await execFileAsync("magick", [
     filePath,
     "-alpha", "set",
-    "-fuzz", "15%",
+    "-fuzz", `${fuzz}%`,
+    "-transparent", `#${targetHex}`,
+    filePath,
+  ]);
+
+  // Pass 2: Flood-fill from corners with higher fuzz to catch anti-aliased fringe
+  await execFileAsync("magick", [
+    filePath,
+    "-fuzz", `${fuzz + 10}%`,
     "-fill", "none",
     "-draw", "color 0,0 floodfill",
     "-draw", "color 0,%[fx:h-1] floodfill",
@@ -91,6 +155,7 @@ async function removeBackground(filePath) {
     "-draw", "color %[fx:w-1],%[fx:h-1] floodfill",
     filePath,
   ]);
+
   console.error("Background removed.");
 }
 
