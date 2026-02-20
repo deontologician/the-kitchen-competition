@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { renderPixelText, addMenuButton } from "./renderPixelText";
 import { recordSceneEntry } from "./saveHelpers";
 import { showTutorialHint } from "./tutorialHint";
-import { renderTimerBar, formatTimeRemaining } from "./timerBar";
+import { renderTimerBar } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
@@ -15,7 +15,6 @@ import {
   tickTimer,
   isPhaseTimerExpired,
   isTimedPhase,
-  timerFraction,
   advanceToService,
   advanceToDayEnd,
   finishCooking,
@@ -36,12 +35,17 @@ import {
   itemCounts,
   type Inventory,
 } from "../domain/inventory";
+import { timerBarVM } from "../domain/view/timer-vm";
+import {
+  kitchenVM,
+  type ActiveRecipe,
+  type RecipeVM,
+} from "../domain/view/kitchen-vm";
 
 // Layout constants
 const RECIPE_LIST_LEFT = 50;
 const RECIPE_LIST_TOP = 140;
 const RECIPE_ROW_H = 56;
-const RECIPE_COLS = 1;
 const RECIPE_WIDTH = 340;
 const INV_LEFT = 430;
 const INV_TOP = 140;
@@ -160,22 +164,17 @@ export class KitchenScene extends Phaser.Scene {
       this.progressLabel = undefined;
     }
 
-    // Determine label based on current mode
-    const label =
-      updated.phase.tag === "kitchen_prep"
-        ? `DAY ${updated.day} - PREPPING ${formatTimeRemaining(updated.phase.remainingMs)}`
-        : `DAY ${updated.day} - SERVICE ${formatTimeRemaining(updated.phase.remainingMs)}`;
-
-    // Redraw timer bar
+    // Redraw timer bar using view model
     this.timerGraphics?.destroy();
     this.timerLabel?.destroy();
-    const fraction = timerFraction(updated.phase);
-    this.timerGraphics = renderTimerBar(this, 100, 50, 600, 24, fraction, {
-      label,
-    });
-    this.timerLabel = this.children.list[
-      this.children.list.length - 1
-    ] as Phaser.GameObjects.Text;
+    const vm = timerBarVM(updated.phase, updated.day);
+    if (vm !== undefined) {
+      const result = renderTimerBar(this, 100, 50, 600, 24, vm.fraction, {
+        label: vm.label,
+      });
+      this.timerGraphics = result.graphics;
+      this.timerLabel = result.label;
+    }
 
     if (isPhaseTimerExpired(updated)) {
       if (updated.phase.tag === "kitchen_prep") {
@@ -198,17 +197,21 @@ export class KitchenScene extends Phaser.Scene {
 
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
-    const recipes = unlockedRecipesFor(type, unlockedCount);
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
 
-    // Show all recipes (prep, cook, and assemble) in both kitchen prep and service cooking
-    const filteredRecipes = recipes;
+    const activeRecipeState: ActiveRecipe | undefined =
+      this.activeRecipe !== undefined
+        ? { step: this.activeRecipe, startedAt: this.recipeStartTime }
+        : undefined;
 
-    // Show up to 7 recipes, prioritizing craftable ones
-    const sortedRecipes = [...filteredRecipes].sort((a, b) => {
-      const aCanMake = hasIngredientsFor(inv, a) ? 0 : 1;
-      const bCanMake = hasIngredientsFor(inv, b) ? 0 : 1;
+    const vm = kitchenVM(inv, type, unlockedCount, activeRecipeState, Date.now());
+    const isBusy = this.activeRecipe !== undefined;
+
+    // Sort: craftable first, limit to 7
+    const sortedRecipes = [...vm.recipes].sort((a, b) => {
+      const aCanMake = a.canMake ? 0 : 1;
+      const bCanMake = b.canMake ? 0 : 1;
       return aCanMake - bCanMake;
     });
     const maxVisible = 7;
@@ -216,49 +219,40 @@ export class KitchenScene extends Phaser.Scene {
 
     visibleRecipes.forEach((recipe, i) => {
       const y = RECIPE_LIST_TOP + i * RECIPE_ROW_H + RECIPE_ROW_H / 2;
-      const canMake = hasIngredientsFor(inv, recipe);
-      const isBusy = this.activeRecipe !== undefined;
 
       const container = this.add.container(RECIPE_LIST_LEFT, y);
 
       // Background
+      const bgAlpha = recipe.canMake && !isBusy ? 0.85 : 0.5;
       const bg = this.add.graphics();
-      const bgAlpha = canMake && !isBusy ? 0.85 : 0.5;
-      bg.fillStyle(canMake ? 0x1a2e1a : 0x1a1a2e, bgAlpha);
+      bg.fillStyle(recipe.canMake ? 0x1a2e1a : 0x1a1a2e, bgAlpha);
       bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, RECIPE_WIDTH, RECIPE_ROW_H - 4, 4);
       container.add(bg);
 
       // Output item icon
-      const spriteKey = `item-${recipe.output}`;
-      if (this.textures.exists(spriteKey)) {
+      if (this.textures.exists(recipe.outputSpriteKey)) {
         const sprite = this.add
-          .image(22, 0, spriteKey)
+          .image(22, 0, recipe.outputSpriteKey)
           .setDisplaySize(ICON_SIZE, ICON_SIZE);
         container.add(sprite);
       }
 
       // Recipe name
-      const outputItem = findItem(recipe.output);
-      const name = outputItem?.name ?? recipe.name;
       const nameText = this.add
-        .text(46, -10, name, {
+        .text(46, -10, recipe.outputName, {
           fontFamily: "monospace",
           fontSize: "11px",
-          color: canMake ? "#4caf50" : "#666677",
+          color: recipe.canMake ? "#4caf50" : "#666677",
           fontStyle: "bold",
         })
         .setOrigin(0, 0.5);
       container.add(nameText);
 
-      // Input requirements
+      // Input requirements (from VM)
       const inputsStr = recipe.inputs
-        .map((inp) => {
-          const item = findItem(inp.itemId);
-          const have = countItem(inv, inp.itemId);
-          const short = have < inp.quantity;
-          const name = item?.name ?? inp.itemId;
-          return `${short ? "!" : ""}${name}(${have}/${inp.quantity})`;
-        })
+        .map((inp) =>
+          `${inp.isShort ? "!" : ""}${inp.name}(${inp.have}/${inp.need})`
+        )
         .join(" ");
       const inputsText = this.add
         .text(46, 8, inputsStr, {
@@ -270,7 +264,7 @@ export class KitchenScene extends Phaser.Scene {
       container.add(inputsText);
 
       // Time label
-      const timeStr = `${(recipe.timeMs / 1000).toFixed(0)}s`;
+      const timeStr = `${recipe.timeSeconds.toFixed(0)}s`;
       const timeText = this.add
         .text(RECIPE_WIDTH - 10, 0, timeStr, {
           fontFamily: "monospace",
@@ -280,8 +274,8 @@ export class KitchenScene extends Phaser.Scene {
         .setOrigin(1, 0.5);
       container.add(timeText);
 
-      // Make clickable
-      if (canMake && !isBusy) {
+      // Make clickable — need to find the original RecipeStep for startRecipe
+      if (recipe.canMake && !isBusy) {
         const hitZone = this.add
           .zone(RECIPE_WIDTH / 2, 0, RECIPE_WIDTH, RECIPE_ROW_H - 4)
           .setInteractive({ useHandCursor: true });
@@ -298,12 +292,22 @@ export class KitchenScene extends Phaser.Scene {
           bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, RECIPE_WIDTH, RECIPE_ROW_H - 4, 4);
         });
         hitZone.on("pointerdown", () => {
-          this.startRecipe(recipe);
+          this.startRecipeByStepId(recipe.stepId);
         });
       }
 
       this.recipeButtons.push(container);
     });
+  }
+
+  private startRecipeByStepId(stepId: string): void {
+    const type = getActiveRestaurantType(this.registry);
+    const unlockedCount = getActiveUnlockedCount(this.registry);
+    const recipes = unlockedRecipesFor(type, unlockedCount);
+    const recipe = recipes.find((r) => r.id === stepId);
+    if (recipe !== undefined) {
+      this.startRecipe(recipe);
+    }
   }
 
   private startRecipe(recipe: RecipeStep): void {
@@ -383,13 +387,12 @@ export class KitchenScene extends Phaser.Scene {
     );
     const label = `${name} ${(remaining / 1000).toFixed(1)}s`;
 
-    this.progressBar = renderTimerBar(this, 100, y, 600, 20, fraction, {
+    const result = renderTimerBar(this, 100, y, 600, 20, fraction, {
       color: 0x2196f3,
       label,
     });
-    this.progressLabel = this.children.list[
-      this.children.list.length - 1
-    ] as Phaser.GameObjects.Text;
+    this.progressBar = result.graphics;
+    this.progressLabel = result.label;
   }
 
   private renderInventory(): void {

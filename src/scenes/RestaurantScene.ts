@@ -4,7 +4,7 @@ import { initialWallet, formatCoins, addCoins, type Wallet } from "../domain/wal
 import { measureLineWidth, createDefaultLayoutConfig } from "../domain/pixel-font";
 import { recordSceneEntry } from "./saveHelpers";
 import { showTutorialHint } from "./tutorialHint";
-import { renderTimerBar, formatTimeRemaining } from "./timerBar";
+import { renderTimerBar } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
@@ -34,7 +34,7 @@ import {
   removeExpiredCustomers,
   defaultDurations,
 } from "../domain/day-cycle";
-import { pickRandomDish, unlockedMenuFor, shouldUnlockNextDish, unlockedDishIdsFor } from "../domain/menu";
+import { pickRandomDish, unlockedMenuFor, unlockedDishIdsFor } from "../domain/menu";
 import { findItem } from "../domain/items";
 import {
   createInventory,
@@ -74,6 +74,9 @@ import {
   updateSlot,
   createSaveSlot,
 } from "../domain/save-slots";
+import { timerBarVM } from "../domain/view/timer-vm";
+import { restaurantVM } from "../domain/view/restaurant-vm";
+import { dayEndVM } from "../domain/view/day-end-vm";
 
 const TABLE_SIZE = 140;
 const TABLE_POSITIONS: ReadonlyArray<{ readonly x: number; readonly y: number }> = [
@@ -228,15 +231,17 @@ export class RestaurantScene extends Phaser.Scene {
       );
     }
 
-    // Redraw timer bar
+    // Redraw timer bar using view model
     this.timerGraphics?.destroy();
     this.timerLabel?.destroy();
-    const fraction = timerFraction(servicePhase);
-    const label = `DAY ${cycle.day} - SERVICE ${formatTimeRemaining(servicePhase.remainingMs)}`;
-    this.timerGraphics = renderTimerBar(this, 100, 50, 600, 24, fraction, { label });
-    this.timerLabel = this.children.list[
-      this.children.list.length - 1
-    ] as Phaser.GameObjects.Text;
+    const timerVM = timerBarVM(servicePhase, cycle.day);
+    if (timerVM !== undefined) {
+      const result = renderTimerBar(this, 100, 50, 600, 24, timerVM.fraction, {
+        label: timerVM.label,
+      });
+      this.timerGraphics = result.graphics;
+      this.timerLabel = result.label;
+    }
 
     this.updateTableTints(servicePhase);
     this.inventoryObjects = renderInventorySidebar(this, this.getInventory(), this.inventoryObjects);
@@ -250,7 +255,7 @@ export class RestaurantScene extends Phaser.Scene {
       return;
     }
 
-    // Auto-begin taking order if waiting and queue non-empty
+    // Use restaurant view model for action prompts
     if (updated.phase.tag === "service") {
       const phase = updated.phase;
       if (
@@ -266,10 +271,14 @@ export class RestaurantScene extends Phaser.Scene {
         }
       }
 
-      if (phase.subPhase.tag === "serving") {
-        this.showServingPrompt(updated);
-      } else if (phase.subPhase.tag === "waiting_for_customer") {
-        this.showWaitingStatus(phase.customerQueue.length);
+      const type = getActiveRestaurantType(this.registry);
+      const unlockedCount = getActiveUnlockedCount(this.registry);
+      const rvm = restaurantVM(phase, this.getInventory(), type, unlockedCount);
+
+      if (rvm.actionPrompt.tag === "serving") {
+        this.showServingPrompt(updated, rvm.actionPrompt);
+      } else if (rvm.actionPrompt.tag === "waiting") {
+        this.showWaitingStatus(rvm.actionPrompt.message);
       }
     }
   }
@@ -321,14 +330,18 @@ export class RestaurantScene extends Phaser.Scene {
     if (cycle.phase.subPhase.tag !== "taking_order") return;
     this.clearStatus();
 
+    const type = getActiveRestaurantType(this.registry);
+    const unlockedCount = getActiveUnlockedCount(this.registry);
+    const rvm = restaurantVM(cycle.phase, this.getInventory(), type, unlockedCount);
+    if (rvm.actionPrompt.tag !== "taking_order") return;
+
+    const prompt = rvm.actionPrompt;
     const centerX = this.scale.width / 2;
     const customer = cycle.phase.subPhase.customer;
-    const dishItem = findItem(customer.dishId);
-    const dishName = dishItem?.name ?? customer.dishId;
 
     this.statusObjects.push(
       this.add
-        .text(centerX, 200, `ORDER: ${dishName}`, {
+        .text(centerX, 200, `ORDER: ${prompt.dishName}`, {
           fontFamily: "monospace",
           fontSize: "16px",
           color: "#f5a623",
@@ -338,15 +351,12 @@ export class RestaurantScene extends Phaser.Scene {
         .setOrigin(0.5)
     );
 
-    this.addDishSprite(centerX, 250, customer.dishId);
+    this.addDishSprite(centerX, 250, prompt.dishId);
 
-    const price = this.getPriceForDish(customer.dishId);
-    const hasDish = countItem(this.getInventory(), customer.dishId) > 0;
-
-    if (hasDish) {
+    if (prompt.hasDish) {
       this.statusObjects.push(
         this.add
-          .text(centerX, 285, `In stock! Sell: $${price}`, {
+          .text(centerX, 285, `In stock! Sell: $${prompt.sellPrice}`, {
             fontFamily: "monospace",
             fontSize: "12px",
             color: "#4caf50",
@@ -356,8 +366,9 @@ export class RestaurantScene extends Phaser.Scene {
           .setOrigin(0.5)
       );
 
-      const serveDishId = customer.dishId;
+      const serveDishId = prompt.dishId;
       const serveCustomerId = customer.id;
+      const price = prompt.sellPrice;
       this.statusObjects.push(
         addMenuButton(this, centerX - 80, 320, "Serve Now", () => {
           const current = this.getCycle();
@@ -374,7 +385,7 @@ export class RestaurantScene extends Phaser.Scene {
     } else {
       this.statusObjects.push(
         this.add
-          .text(centerX, 285, `Sell: $${price}`, {
+          .text(centerX, 285, `Sell: $${prompt.sellPrice}`, {
             fontFamily: "monospace",
             fontSize: "12px",
             color: "#4caf50",
@@ -430,7 +441,13 @@ export class RestaurantScene extends Phaser.Scene {
     );
   }
 
-  private showServingPrompt(cycle: DayCycle): void {
+  private showServingPrompt(
+    cycle: DayCycle,
+    prompt: Extract<
+      ReturnType<typeof restaurantVM>["actionPrompt"],
+      { readonly tag: "serving" }
+    >
+  ): void {
     if (cycle.phase.tag !== "service" || cycle.phase.subPhase.tag !== "serving")
       return;
 
@@ -448,15 +465,11 @@ export class RestaurantScene extends Phaser.Scene {
     this.clearStatus();
     const centerX = this.scale.width / 2;
     const order = cycle.phase.subPhase.order;
-    const dishItem = findItem(order.dishId);
-    const dishName = dishItem?.name ?? order.dishId;
 
-    const hasDish = countItem(this.getInventory(), order.dishId) > 0;
-
-    if (hasDish) {
+    if (prompt.hasDish) {
       this.statusObjects.push(
         this.add
-          .text(centerX, 210, `SERVE: ${dishName}`, {
+          .text(centerX, 210, `SERVE: ${prompt.dishName}`, {
             fontFamily: "monospace",
             fontSize: "16px",
             color: "#4caf50",
@@ -466,11 +479,11 @@ export class RestaurantScene extends Phaser.Scene {
           .setOrigin(0.5)
       );
 
-      this.addDishSprite(centerX, 260, order.dishId);
+      this.addDishSprite(centerX, 260, prompt.dishId);
 
       const servingCustomerId = order.customerId;
-      const servingDishId = order.dishId;
-      const price = this.getPriceForDish(servingDishId);
+      const servingDishId = prompt.dishId;
+      const price = prompt.sellPrice;
 
       this.statusObjects.push(
         addMenuButton(this, centerX, 310, "Serve Dish", () => {
@@ -488,7 +501,7 @@ export class RestaurantScene extends Phaser.Scene {
     } else {
       this.statusObjects.push(
         this.add
-          .text(centerX, 220, `Need: ${dishName}`, {
+          .text(centerX, 220, `Need: ${prompt.dishName}`, {
             fontFamily: "monospace",
             fontSize: "14px",
             color: "#f44336",
@@ -512,7 +525,7 @@ export class RestaurantScene extends Phaser.Scene {
     }
   }
 
-  private showWaitingStatus(queueLength: number): void {
+  private showWaitingStatus(message: string): void {
     if (
       this.statusObjects.length > 0 &&
       this.statusObjects.some(
@@ -525,13 +538,9 @@ export class RestaurantScene extends Phaser.Scene {
 
     this.clearStatus();
     const centerX = this.scale.width / 2;
-    const msg =
-      queueLength > 0
-        ? `${queueLength} in queue...`
-        : "Waiting for customers...";
     this.statusObjects.push(
       this.add
-        .text(centerX, 240, msg, {
+        .text(centerX, 240, message, {
           fontFamily: "monospace",
           fontSize: "14px",
           color: "#888899",
@@ -550,42 +559,23 @@ export class RestaurantScene extends Phaser.Scene {
     this.customerSpawnTimer?.destroy();
     this.clearStatus();
 
-    const centerX = this.scale.width / 2;
-    const centerY = this.scale.height / 2;
-
-    const overlay = this.add.graphics();
-    overlay.fillStyle(0x000000, 0.7);
-    overlay.fillRect(0, 0, this.scale.width, this.scale.height);
-
-    this.add
-      .text(centerX, centerY - 80, `DAY ${cycle.day} COMPLETE`, {
-        fontFamily: "monospace",
-        fontSize: "24px",
-        color: "#f5a623",
-      })
-      .setOrigin(0.5);
-
-    const earnings = cycle.phase.earnings;
-    const served = cycle.phase.customersServed;
-    const lost = cycle.phase.customersLost;
+    // Use day-end view model
+    const type = getActiveRestaurantType(this.registry);
+    const currentUnlocked = getActiveUnlockedCount(this.registry);
     const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
-    const newWallet = addCoins(wallet, earnings);
+    const vm = dayEndVM(cycle.phase, cycle.day, wallet, type, currentUnlocked);
+
+    const newWallet = addCoins(wallet, vm.earnings);
 
     const lb: Leaderboard =
       this.registry.get("leaderboard") ?? createLeaderboard();
     this.registry.set(
       "leaderboard",
-      recordDayResult(lb, { served, earnings })
+      recordDayResult(lb, { served: vm.customersServed, earnings: vm.earnings })
     );
 
-    // Check for dish unlock
-    const type = getActiveRestaurantType(this.registry);
-    const currentUnlocked = getActiveUnlockedCount(this.registry);
-    const newUnlocked = shouldUnlockNextDish(lost, newWallet.coins, currentUnlocked);
-    const didUnlock = newUnlocked > currentUnlocked;
-
     // Persist unlock to save slot
-    if (didUnlock) {
+    if (vm.dishUnlock !== undefined) {
       const store: SaveStore | undefined = this.registry.get("saveStore");
       const activeSlotId: SlotId | undefined = this.registry.get("activeSlotId");
       if (store !== undefined && activeSlotId !== undefined) {
@@ -598,17 +588,32 @@ export class RestaurantScene extends Phaser.Scene {
             slot.coins,
             slot.scene,
             Date.now(),
-            newUnlocked
+            vm.dishUnlock.newUnlockedCount
           );
           this.registry.set("saveStore", updateSlot(store, updated));
         }
       }
     }
 
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.7);
+    overlay.fillRect(0, 0, this.scale.width, this.scale.height);
+
+    this.add
+      .text(centerX, centerY - 80, `DAY ${vm.day} COMPLETE`, {
+        fontFamily: "monospace",
+        fontSize: "24px",
+        color: "#f5a623",
+      })
+      .setOrigin(0.5);
+
     let yPos = centerY - 30;
 
     this.add
-      .text(centerX, yPos, `Customers served: ${served}`, {
+      .text(centerX, yPos, `Customers served: ${vm.customersServed}`, {
         fontFamily: "monospace",
         fontSize: "16px",
         color: "#ffffff",
@@ -616,9 +621,9 @@ export class RestaurantScene extends Phaser.Scene {
       .setOrigin(0.5);
     yPos += 28;
 
-    if (lost > 0) {
+    if (vm.customersLost > 0) {
       this.add
-        .text(centerX, yPos, `Customers lost: ${lost}`, {
+        .text(centerX, yPos, `Customers lost: ${vm.customersLost}`, {
           fontFamily: "monospace",
           fontSize: "14px",
           color: "#ff6666",
@@ -628,7 +633,7 @@ export class RestaurantScene extends Phaser.Scene {
     }
 
     this.add
-      .text(centerX, yPos, `Earnings: $${earnings}`, {
+      .text(centerX, yPos, `Earnings: $${vm.earnings}`, {
         fontFamily: "monospace",
         fontSize: "16px",
         color: "#4caf50",
@@ -637,7 +642,7 @@ export class RestaurantScene extends Phaser.Scene {
     yPos += 28;
 
     this.add
-      .text(centerX, yPos, `Total: $${newWallet.coins}`, {
+      .text(centerX, yPos, `Total: $${vm.newTotalCoins}`, {
         fontFamily: "monospace",
         fontSize: "14px",
         color: "#f5a623",
@@ -645,14 +650,9 @@ export class RestaurantScene extends Phaser.Scene {
       .setOrigin(0.5);
     yPos += 28;
 
-    if (didUnlock) {
-      const newDishIds = unlockedDishIdsFor(type, newUnlocked);
-      const newDishId = newDishIds[newDishIds.length - 1];
-      const dishItem = findItem(newDishId);
-      const dishName = dishItem?.name ?? newDishId;
-
+    if (vm.dishUnlock !== undefined) {
       this.add
-        .text(centerX, yPos, `NEW DISH UNLOCKED: ${dishName}!`, {
+        .text(centerX, yPos, `NEW DISH UNLOCKED: ${vm.dishUnlock.dishName}!`, {
           fontFamily: "monospace",
           fontSize: "14px",
           color: "#00e5ff",
@@ -662,10 +662,9 @@ export class RestaurantScene extends Phaser.Scene {
       yPos += 28;
 
       // Show dish sprite if available
-      const spriteKey = `item-${newDishId}`;
-      if (this.textures.exists(spriteKey)) {
+      if (this.textures.exists(vm.dishUnlock.dishSpriteKey)) {
         this.add
-          .image(centerX, yPos, spriteKey)
+          .image(centerX, yPos, vm.dishUnlock.dishSpriteKey)
           .setDisplaySize(48, 48);
         yPos += 36;
       }
@@ -693,7 +692,7 @@ export class RestaurantScene extends Phaser.Scene {
     this.doAnimateServe(custId);
     this.removeFromInventory(dishId);
 
-    // Fast-track through cooking→serving→finishServing if needed
+    // Fast-track through cooking->serving->finishServing if needed
     const phase = cycle.phase;
     let served: ServicePhase;
     if (phase.subPhase.tag === "taking_order") {
@@ -719,14 +718,6 @@ export class RestaurantScene extends Phaser.Scene {
     );
     if (tableId < 0 || tableId >= this.tableSprites.length) return;
     animateServe(this, this.tableSprites[tableId], TABLE_POSITIONS[tableId]);
-  }
-
-  private getPriceForDish(dishId: string): number {
-    const type = getActiveRestaurantType(this.registry);
-    const unlockedCount = getActiveUnlockedCount(this.registry);
-    const menu = unlockedMenuFor(type, unlockedCount);
-    const menuItem = menu.items.find((mi) => mi.dishId === dishId);
-    return menuItem?.sellPrice ?? 5;
   }
 
   private removeFromInventory(dishId: ItemId): void {

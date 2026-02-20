@@ -1,10 +1,17 @@
 import Phaser from "phaser";
+import type { TimerColor } from "../domain/view/format";
+export { formatTimeRemaining } from "../domain/view/format";
 
 interface TimerBarOptions {
   readonly color?: number;
   readonly backgroundColor?: number;
   readonly borderColor?: number;
   readonly label?: string;
+}
+
+export interface TimerBarResult {
+  readonly graphics: Phaser.GameObjects.Graphics;
+  readonly label: Phaser.GameObjects.Text | undefined;
 }
 
 const COLOR_GREEN = 0x4caf50;
@@ -17,6 +24,12 @@ const fractionColor = (fraction: number): number => {
   return COLOR_RED;
 };
 
+export const TIMER_COLOR_HEX: Readonly<Record<TimerColor, number>> = {
+  green: COLOR_GREEN,
+  yellow: COLOR_YELLOW,
+  red: COLOR_RED,
+};
+
 export const renderTimerBar = (
   scene: Phaser.Scene,
   x: number,
@@ -25,7 +38,7 @@ export const renderTimerBar = (
   height: number,
   fraction: number,
   options: TimerBarOptions = {}
-): Phaser.GameObjects.Graphics => {
+): TimerBarResult => {
   const bgColor = options.backgroundColor ?? 0x1a1a2e;
   const borderColor = options.borderColor ?? 0x444466;
   const fillColor = options.color ?? fractionColor(fraction);
@@ -46,8 +59,9 @@ export const renderTimerBar = (
   graphics.strokeRect(x, y, width, height);
 
   // Optional label
+  let labelObj: Phaser.GameObjects.Text | undefined;
   if (options.label !== undefined) {
-    scene.add
+    labelObj = scene.add
       .text(x + width / 2, y + height / 2, options.label, {
         fontFamily: "monospace",
         fontSize: "12px",
@@ -57,12 +71,5 @@ export const renderTimerBar = (
       .setDepth(1);
   }
 
-  return graphics;
-};
-
-export const formatTimeRemaining = (ms: number): string => {
-  const totalSeconds = Math.ceil(ms / 1_000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  return { graphics, label: labelObj };
 };

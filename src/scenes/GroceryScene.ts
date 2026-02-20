@@ -12,7 +12,7 @@ import {
 } from "../domain/pixel-font";
 import { recordSceneEntry } from "./saveHelpers";
 import { showTutorialHint } from "./tutorialHint";
-import { renderTimerBar, formatTimeRemaining } from "./timerBar";
+import { renderTimerBar } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
@@ -24,7 +24,6 @@ import {
   type DayCycle,
   tickTimer,
   isPhaseTimerExpired,
-  timerFraction,
   advanceToKitchenPrep,
   defaultDurations,
 } from "../domain/day-cycle";
@@ -33,9 +32,10 @@ import { findItem, type ItemDef } from "../domain/items";
 import {
   createInventory,
   addItem,
-  countItem,
   type Inventory,
 } from "../domain/inventory";
+import { timerBarVM } from "../domain/view/timer-vm";
+import { groceryVM, type GroceryItemVM } from "../domain/view/grocery-vm";
 
 // Grid layout constants
 const GRID_LEFT = 60;
@@ -121,14 +121,14 @@ export class GroceryScene extends Phaser.Scene {
     // Redraw timer bar
     this.timerGraphics?.destroy();
     this.timerLabel?.destroy();
-    const fraction = timerFraction(updated.phase);
-    const label = `DAY ${updated.day} - SHOPPING ${formatTimeRemaining(updated.phase.remainingMs)}`;
-    this.timerGraphics = renderTimerBar(this, 100, 50, 600, 24, fraction, {
-      label,
-    });
-    this.timerLabel = this.children.list[
-      this.children.list.length - 1
-    ] as Phaser.GameObjects.Text;
+    const vm = timerBarVM(updated.phase, updated.day);
+    if (vm !== undefined) {
+      const result = renderTimerBar(this, 100, 50, 600, 24, vm.fraction, {
+        label: vm.label,
+      });
+      this.timerGraphics = result.graphics;
+      this.timerLabel = result.label;
+    }
 
     if (isPhaseTimerExpired(updated)) {
       const next = advanceToKitchenPrep(
@@ -145,10 +145,14 @@ export class GroceryScene extends Phaser.Scene {
     this.itemButtons.forEach((c) => c.destroy());
     this.itemButtons = [];
 
+    const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
+    const type = getActiveRestaurantType(this.registry);
+    const unlockedCount = getActiveUnlockedCount(this.registry);
+    const vm = groceryVM(wallet, inv, type, unlockedCount);
 
-    this.groceryItems.forEach((item, i) => {
+    vm.items.forEach((item, i) => {
       const col = i % COLS;
       const row = Math.floor(i / COLS);
       const x = GRID_LEFT + col * CELL_W + CELL_W / 2;
@@ -169,19 +173,16 @@ export class GroceryScene extends Phaser.Scene {
       container.add(bg);
 
       // Item sprite
-      const spriteKey = `item-${item.id}`;
-      if (this.textures.exists(spriteKey)) {
+      if (this.textures.exists(item.spriteKey)) {
         const sprite = this.add
-          .image(0, -14, spriteKey)
+          .image(0, -14, item.spriteKey)
           .setDisplaySize(ICON_SIZE, ICON_SIZE);
         container.add(sprite);
       }
 
-      // Item name (truncated)
-      const displayName =
-        item.name.length > 10 ? item.name.slice(0, 9) + "." : item.name;
+      // Item name (truncated via VM)
       const nameText = this.add
-        .text(0, 18, displayName, {
+        .text(0, 18, item.displayName, {
           fontFamily: "monospace",
           fontSize: "9px",
           color: "#cccccc",
@@ -201,15 +202,14 @@ export class GroceryScene extends Phaser.Scene {
       container.add(costText);
 
       // Count badge (how many in inventory)
-      const count = countItem(inv, item.id);
       const countText = this.add
-        .text(CELL_W / 2 - 12, -CELL_H / 2 + 8, count > 0 ? `${count}` : "", {
+        .text(CELL_W / 2 - 12, -CELL_H / 2 + 8, item.count > 0 ? `${item.count}` : "", {
           fontFamily: "monospace",
           fontSize: "11px",
           color: "#f5a623",
           fontStyle: "bold",
-          backgroundColor: count > 0 ? "#1a1a2e" : undefined,
-          padding: count > 0 ? { x: 3, y: 1 } : undefined,
+          backgroundColor: item.count > 0 ? "#1a1a2e" : undefined,
+          padding: item.count > 0 ? { x: 3, y: 1 } : undefined,
         })
         .setOrigin(0.5);
       container.add(countText);
@@ -252,17 +252,16 @@ export class GroceryScene extends Phaser.Scene {
     });
   }
 
-  private buyItem(item: ItemDef): void {
-    const cost = item.cost ?? 0;
+  private buyItem(item: GroceryItemVM): void {
     const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
-    const newWallet = spendCoins(wallet, cost);
+    const newWallet = spendCoins(wallet, item.cost);
     if (newWallet === undefined) return; // can't afford
 
     this.registry.set("wallet", newWallet);
 
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
-    const newInv = addItem(inv, item.id, Date.now());
+    const newInv = addItem(inv, item.itemId, Date.now());
     this.registry.set("inventory", newInv);
 
     // Refresh display
