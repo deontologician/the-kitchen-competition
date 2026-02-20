@@ -1,7 +1,15 @@
 import Phaser from "phaser";
 import { renderPixelText } from "./renderPixelText";
-import { initialWallet, formatCoins, type Wallet } from "../domain/wallet";
-import { measureLineWidth, createDefaultLayoutConfig } from "../domain/pixel-font";
+import {
+  initialWallet,
+  formatCoins,
+  spendCoins,
+  type Wallet,
+} from "../domain/wallet";
+import {
+  measureLineWidth,
+  createDefaultLayoutConfig,
+} from "../domain/pixel-font";
 import { recordSceneEntry } from "./saveHelpers";
 import { renderTimerBar, formatTimeRemaining } from "./timerBar";
 import { renderPanel } from "./panel";
@@ -18,10 +26,29 @@ import {
   advanceToKitchenPrep,
   defaultDurations,
 } from "../domain/day-cycle";
+import { groceryItemsFor } from "../domain/menu";
+import { findItem, type ItemDef } from "../domain/items";
+import {
+  createInventory,
+  addItem,
+  countItem,
+  type Inventory,
+} from "../domain/inventory";
+
+// Grid layout constants
+const GRID_LEFT = 60;
+const GRID_TOP = 150;
+const CELL_W = 90;
+const CELL_H = 100;
+const COLS = 8;
+const ICON_SIZE = 48;
 
 export class GroceryScene extends Phaser.Scene {
   private timerGraphics?: Phaser.GameObjects.Graphics;
   private timerLabel?: Phaser.GameObjects.Text;
+  private itemButtons: Phaser.GameObjects.Container[] = [];
+  private coinHudObjects: Phaser.GameObjects.GameObject[] = [];
+  private groceryItems: ReadonlyArray<ItemDef> = [];
 
   constructor() {
     super("GroceryScene");
@@ -33,6 +60,15 @@ export class GroceryScene extends Phaser.Scene {
     if (!this.textures.exists(key)) {
       this.load.image(key, backgroundAssetPath(type, "grocery"));
     }
+
+    // Preload item sprites for this restaurant type
+    const itemIds = groceryItemsFor(type);
+    itemIds.forEach((id) => {
+      const spriteKey = `item-${id}`;
+      if (!this.textures.exists(spriteKey)) {
+        this.load.image(spriteKey, `assets/items/${id}.png`);
+      }
+    });
   }
 
   create(): void {
@@ -45,20 +81,23 @@ export class GroceryScene extends Phaser.Scene {
       .image(w / 2, h / 2, backgroundKey(type, "grocery"))
       .setDisplaySize(w, h);
 
-    renderPanel(this, { marginTop: 80, marginBottom: 40, marginLeft: 40, marginRight: 40 });
-
-    renderPixelText(this, ["GROCERY STORE"], { centerY: 120 });
-
-    const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
-    const coinText = formatCoins(wallet);
-    const config = createDefaultLayoutConfig();
-    const textWidth = measureLineWidth(coinText, config) * config.pixelSize;
-    renderPixelText(this, [coinText], {
-      x: w - textWidth - config.pixelSize * 5,
-      y: config.pixelSize * 3,
+    renderPanel(this, {
+      marginTop: 80,
+      marginBottom: 40,
+      marginLeft: 40,
+      marginRight: 40,
     });
 
-    renderPixelText(this, ["SHOPPING..."], { centerY: 320 });
+    renderPixelText(this, ["GROCERY STORE"], { centerY: 110 });
+
+    // Build grocery item list
+    const itemIds = groceryItemsFor(type);
+    this.groceryItems = itemIds
+      .map((id) => findItem(id))
+      .filter((item): item is ItemDef => item !== undefined);
+
+    this.renderItemGrid();
+    this.renderCoinHud();
 
     this.input.keyboard!.on("keydown-ESC", () => {
       this.scene.pause();
@@ -79,17 +118,173 @@ export class GroceryScene extends Phaser.Scene {
     this.timerLabel?.destroy();
     const fraction = timerFraction(updated.phase);
     const label = `SHOPPING ${formatTimeRemaining(updated.phase.remainingMs)}`;
-    this.timerGraphics = renderTimerBar(
-      this, 100, 50, 600, 24, fraction, { label }
-    );
+    this.timerGraphics = renderTimerBar(this, 100, 50, 600, 24, fraction, {
+      label,
+    });
     this.timerLabel = this.children.list[
       this.children.list.length - 1
     ] as Phaser.GameObjects.Text;
 
     if (isPhaseTimerExpired(updated)) {
-      const next = advanceToKitchenPrep(updated, defaultDurations.kitchenPrepMs);
+      const next = advanceToKitchenPrep(
+        updated,
+        defaultDurations.kitchenPrepMs
+      );
       this.registry.set("dayCycle", next);
       this.scene.start("KitchenScene");
     }
+  }
+
+  private renderItemGrid(): void {
+    // Clean up old buttons
+    this.itemButtons.forEach((c) => c.destroy());
+    this.itemButtons = [];
+
+    const inv: Inventory =
+      this.registry.get("inventory") ?? createInventory();
+
+    this.groceryItems.forEach((item, i) => {
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
+      const x = GRID_LEFT + col * CELL_W + CELL_W / 2;
+      const y = GRID_TOP + row * CELL_H + CELL_H / 2;
+
+      const container = this.add.container(x, y);
+
+      // Background card
+      const bg = this.add.graphics();
+      bg.fillStyle(0x1a1a2e, 0.85);
+      bg.fillRoundedRect(
+        -CELL_W / 2 + 4,
+        -CELL_H / 2 + 4,
+        CELL_W - 8,
+        CELL_H - 8,
+        6
+      );
+      container.add(bg);
+
+      // Item sprite
+      const spriteKey = `item-${item.id}`;
+      if (this.textures.exists(spriteKey)) {
+        const sprite = this.add
+          .image(0, -14, spriteKey)
+          .setDisplaySize(ICON_SIZE, ICON_SIZE);
+        container.add(sprite);
+      }
+
+      // Item name (truncated)
+      const displayName =
+        item.name.length > 10 ? item.name.slice(0, 9) + "." : item.name;
+      const nameText = this.add
+        .text(0, 18, displayName, {
+          fontFamily: "monospace",
+          fontSize: "9px",
+          color: "#cccccc",
+        })
+        .setOrigin(0.5);
+      container.add(nameText);
+
+      // Cost label
+      const costText = this.add
+        .text(0, 32, `$${item.cost}`, {
+          fontFamily: "monospace",
+          fontSize: "10px",
+          color: "#4caf50",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5);
+      container.add(costText);
+
+      // Count badge (how many in inventory)
+      const count = countItem(inv, item.id);
+      const countText = this.add
+        .text(CELL_W / 2 - 12, -CELL_H / 2 + 8, count > 0 ? `${count}` : "", {
+          fontFamily: "monospace",
+          fontSize: "11px",
+          color: "#f5a623",
+          fontStyle: "bold",
+          backgroundColor: count > 0 ? "#1a1a2e" : undefined,
+          padding: count > 0 ? { x: 3, y: 1 } : undefined,
+        })
+        .setOrigin(0.5);
+      container.add(countText);
+
+      // Make the whole cell interactive
+      const hitZone = this.add
+        .zone(0, 0, CELL_W - 8, CELL_H - 8)
+        .setInteractive({ useHandCursor: true });
+      container.add(hitZone);
+
+      hitZone.on("pointerover", () => {
+        bg.clear();
+        bg.fillStyle(0x2a2a4e, 0.95);
+        bg.fillRoundedRect(
+          -CELL_W / 2 + 4,
+          -CELL_H / 2 + 4,
+          CELL_W - 8,
+          CELL_H - 8,
+          6
+        );
+      });
+
+      hitZone.on("pointerout", () => {
+        bg.clear();
+        bg.fillStyle(0x1a1a2e, 0.85);
+        bg.fillRoundedRect(
+          -CELL_W / 2 + 4,
+          -CELL_H / 2 + 4,
+          CELL_W - 8,
+          CELL_H - 8,
+          6
+        );
+      });
+
+      hitZone.on("pointerdown", () => {
+        this.buyItem(item);
+      });
+
+      this.itemButtons.push(container);
+    });
+  }
+
+  private buyItem(item: ItemDef): void {
+    const cost = item.cost ?? 0;
+    const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
+    const newWallet = spendCoins(wallet, cost);
+    if (newWallet === undefined) return; // can't afford
+
+    this.registry.set("wallet", newWallet);
+
+    const inv: Inventory =
+      this.registry.get("inventory") ?? createInventory();
+    const newInv = addItem(inv, item.id, Date.now());
+    this.registry.set("inventory", newInv);
+
+    // Refresh display
+    this.renderItemGrid();
+    this.renderCoinHud();
+  }
+
+  private renderCoinHud(): void {
+    this.coinHudObjects.forEach((obj) => obj.destroy());
+    this.coinHudObjects = [];
+
+    const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
+    const coinText = formatCoins(wallet);
+    const config = createDefaultLayoutConfig();
+    const textWidth = measureLineWidth(coinText, config) * config.pixelSize;
+
+    // Use a simple Phaser text for the HUD so we can track and destroy it
+    const hud = this.add
+      .text(this.scale.width - 20, 20, `$${wallet.coins}`, {
+        fontFamily: "monospace",
+        fontSize: "18px",
+        color: "#f5a623",
+        fontStyle: "bold",
+        backgroundColor: "#1a1a2e",
+        padding: { x: 8, y: 4 },
+      })
+      .setOrigin(1, 0);
+    this.coinHudObjects.push(hud);
   }
 }
