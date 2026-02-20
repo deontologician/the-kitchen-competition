@@ -67,6 +67,7 @@ export class RestaurantScene extends Phaser.Scene {
   private dayEndShown = false;
   private tableSprites: Phaser.GameObjects.Image[] = [];
   private customersSpawned = 0;
+  private notificationObjects: Phaser.GameObjects.GameObject[] = [];
 
   constructor() {
     super("RestaurantScene");
@@ -169,15 +170,26 @@ export class RestaurantScene extends Phaser.Scene {
 
     // Tick customer patience and remove expired customers
     const withPatience = tickCustomerPatience(ticked.phase, delta);
+    const beforeCount = withPatience.customerQueue.length;
     const servicePhase = removeExpiredCustomers(withPatience);
+    const afterCount = servicePhase.customerQueue.length;
     const updated: DayCycle = { ...ticked, phase: servicePhase };
     this.registry.set("dayCycle", updated);
+
+    // Show notification when customer(s) leave
+    if (afterCount < beforeCount) {
+      const left = beforeCount - afterCount;
+      this.showNotification(
+        left === 1 ? "Customer left!" : `${left} customers left!`,
+        "#ff6666"
+      );
+    }
 
     // Redraw timer bar
     this.timerGraphics?.destroy();
     this.timerLabel?.destroy();
     const fraction = timerFraction(servicePhase);
-    const label = `SERVICE ${formatTimeRemaining(servicePhase.remainingMs)}`;
+    const label = `DAY ${cycle.day} - SERVICE ${formatTimeRemaining(servicePhase.remainingMs)}`;
     this.timerGraphics = renderTimerBar(
       this, 100, 50, 600, 24, fraction, { label }
     );
@@ -787,5 +799,38 @@ export class RestaurantScene extends Phaser.Scene {
   private clearStatus(): void {
     this.statusObjects.forEach((obj) => obj.destroy());
     this.statusObjects = [];
+  }
+
+  private showNotification(message: string, color: string): void {
+    // Clear old notifications
+    this.notificationObjects.forEach((obj) => obj.destroy());
+    this.notificationObjects = [];
+
+    const centerX = this.scale.width / 2;
+    const text = this.add
+      .text(centerX, this.scale.height - 30, message, {
+        fontFamily: "monospace",
+        fontSize: "14px",
+        color,
+        backgroundColor: "#1a1a2e",
+        padding: { x: 10, y: 5 },
+      })
+      .setOrigin(0.5)
+      .setAlpha(1);
+    this.notificationObjects.push(text);
+
+    // Fade out after 2s
+    this.tweens.add({
+      targets: text,
+      alpha: 0,
+      duration: 1000,
+      delay: 1500,
+      onComplete: () => {
+        text.destroy();
+        this.notificationObjects = this.notificationObjects.filter(
+          (obj) => obj !== text
+        );
+      },
+    });
   }
 }

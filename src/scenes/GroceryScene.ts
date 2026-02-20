@@ -117,7 +117,7 @@ export class GroceryScene extends Phaser.Scene {
     this.timerGraphics?.destroy();
     this.timerLabel?.destroy();
     const fraction = timerFraction(updated.phase);
-    const label = `SHOPPING ${formatTimeRemaining(updated.phase.remainingMs)}`;
+    const label = `DAY ${updated.day} - SHOPPING ${formatTimeRemaining(updated.phase.remainingMs)}`;
     this.timerGraphics = renderTimerBar(this, 100, 50, 600, 24, fraction, {
       label,
     });

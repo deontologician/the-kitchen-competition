@@ -147,8 +147,8 @@ export class KitchenScene extends Phaser.Scene {
     // Determine label based on current mode
     const label =
       updated.phase.tag === "kitchen_prep"
-        ? `PREPPING ${formatTimeRemaining(updated.phase.remainingMs)}`
-        : `SERVICE ${formatTimeRemaining(updated.phase.remainingMs)}`;
+        ? `DAY ${updated.day} - PREPPING ${formatTimeRemaining(updated.phase.remainingMs)}`
+        : `DAY ${updated.day} - SERVICE ${formatTimeRemaining(updated.phase.remainingMs)}`;
 
     // Redraw timer bar
     this.timerGraphics?.destroy();
