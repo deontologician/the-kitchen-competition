@@ -15,20 +15,14 @@ export const formatTimeRemaining = (ms: number): string => {
 export const truncateName = (name: string, maxLen: number): string =>
   name.length > maxLen ? name.slice(0, maxLen - 1) + "." : name;
 
-export const timerColor = (fraction: number): TimerColor => {
-  if (fraction > 0.5) return "green";
-  if (fraction > 0.25) return "yellow";
-  return "red";
-};
+const classify3 = <T>(fraction: number, high: T, mid: T, low: T): T =>
+  fraction > 0.5 ? high : fraction > 0.25 ? mid : low;
 
-export const freshnessLevel = (fraction: number): FreshnessLevel => {
-  if (fraction > 0.5) return "fresh";
-  if (fraction > 0.25) return "warning";
-  return "critical";
-};
+export const timerColor = (f: number): TimerColor =>
+  classify3(f, "green", "yellow", "red");
 
-export const patienceLevel = (fraction: number): PatienceLevel => {
-  if (fraction > 0.5) return "ok";
-  if (fraction > 0.25) return "warning";
-  return "critical";
-};
+export const freshnessLevel = (f: number): FreshnessLevel =>
+  classify3(f, "fresh", "warning", "critical");
+
+export const patienceLevel = (f: number): PatienceLevel =>
+  classify3(f, "ok", "warning", "critical");
