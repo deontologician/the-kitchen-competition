@@ -84,6 +84,7 @@ public/
 ## Codebase Details
 
 ### Domain Modules (`src/domain/`)
+- **`branded.ts`** — Branded string types for compile-time ID safety. Types: `CustomerId`, `OrderId`, `SlotId`, `ItemId` (all `string & { __brand }` intersections). Factory functions: `customerId`, `orderId`, `slotId`, `itemId`. Zero-cost at runtime — types erase to plain strings.
 - **`pixel-font.ts`** — 5x7 bitmap pixel font. Supports A-Z, 0-9, space, and `$` (coin icon). Exports: `getGlyph`, `layoutLines`, `measureLineWidth`, `computeCenterOffset`, `createDefaultLayoutConfig`.
 - **`wallet.ts`** — Coin currency. `Wallet` interface with pure functions: `createWallet`, `initialWallet` (20 coins), `addCoins`, `spendCoins` (returns `undefined` if can't afford), `canAfford`, `formatCoins` (returns `"$N"` where `$` renders as coin icon).
 - **`save-game.ts`** — Legacy v1 localStorage persistence. Pure serialization/validation with `SaveData` interface (version 1 + coins). Exports: `SAVE_KEY`, `createSaveData`, `serializeSave`, `deserializeSave` (returns `undefined` on invalid input), `saveDataToWallet`. Still used by `save-slots.ts` for v1→v2 migration.

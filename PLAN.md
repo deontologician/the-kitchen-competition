@@ -77,12 +77,12 @@ Build a complete restaurant management game where players:
   - Persisted to localStorage, shown on title screen
 - [ ] Sound effects (deferred — requires audio assets)
 
-### Phase 7: Post-Feature Refactoring
+### Phase 7: Post-Feature Refactoring ✅ COMPLETE
 Per CLAUDE.md methodology:
-- [ ] Discover algebras across domain modules
-- [ ] Compactify domain code
-- [ ] Strengthen types (branded IDs, etc.)
-- [ ] Clean up scene code patterns
+- [x] Discover algebras across domain modules — analysis found domain code already well-factored; no forced abstractions needed
+- [x] Compactify domain code — covered by algebra analysis; modules are already minimal
+- [x] Strengthen types (branded IDs) — `CustomerId`, `OrderId`, `SlotId`, `ItemId` branded types (commit `1c2560e`)
+- [x] Clean up scene code patterns — RestaurantScene 963→707 lines, extracted notification/inventorySidebar/tableRenderer/serviceAnimations (commit `1fdd465`)
 
 ## Technical Notes
 
