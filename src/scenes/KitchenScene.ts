@@ -177,14 +177,25 @@ export class KitchenScene extends Phaser.Scene {
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
 
-    // Only show prep and cook recipes (not assemble — those happen during service)
-    const prepCookRecipes = recipes.filter(
-      (r) => r.method === "prep" || r.method === "cook"
-    );
+    // During kitchen prep: only prep/cook recipes
+    // During service cooking: all recipes including assemble
+    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
+    const isServiceCooking =
+      cycle !== undefined &&
+      cycle.phase.tag === "service" &&
+      cycle.phase.subPhase.tag === "cooking";
+    const filteredRecipes = isServiceCooking
+      ? recipes
+      : recipes.filter((r) => r.method === "prep" || r.method === "cook");
 
-    // Scrollable area — show up to 7 recipes
+    // Show up to 7 recipes, prioritizing craftable ones
+    const sortedRecipes = [...filteredRecipes].sort((a, b) => {
+      const aCanMake = hasIngredientsFor(inv, a) ? 0 : 1;
+      const bCanMake = hasIngredientsFor(inv, b) ? 0 : 1;
+      return aCanMake - bCanMake;
+    });
     const maxVisible = 7;
-    const visibleRecipes = prepCookRecipes.slice(0, maxVisible);
+    const visibleRecipes = sortedRecipes.slice(0, maxVisible);
 
     visibleRecipes.forEach((recipe, i) => {
       const y = RECIPE_LIST_TOP + i * RECIPE_ROW_H + RECIPE_ROW_H / 2;
@@ -311,10 +322,14 @@ export class KitchenScene extends Phaser.Scene {
     this.renderRecipeList();
     this.renderInventory();
 
-    // Set timer for recipe completion
-    this.cookingTimer = this.time.delayedCall(recipe.timeMs, () => {
+    // Set timer for recipe completion (instant if timeMs is 0, e.g. assemble)
+    if (recipe.timeMs <= 0) {
       this.finishRecipe(recipe);
-    });
+    } else {
+      this.cookingTimer = this.time.delayedCall(recipe.timeMs, () => {
+        this.finishRecipe(recipe);
+      });
+    }
   }
 
   private finishRecipe(recipe: RecipeStep): void {
@@ -331,6 +346,21 @@ export class KitchenScene extends Phaser.Scene {
     this.progressLabel?.destroy();
     this.progressBar = undefined;
     this.progressLabel = undefined;
+
+    // Check if we just completed a service cooking order
+    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
+    if (
+      cycle !== undefined &&
+      cycle.phase.tag === "service" &&
+      cycle.phase.subPhase.tag === "cooking"
+    ) {
+      const dishId = cycle.phase.subPhase.order.dishId;
+      if (countItem(updated, dishId) > 0) {
+        // We have the dish! Finish cooking and go back to restaurant
+        this.finishServiceCooking();
+        return;
+      }
+    }
 
     // Refresh display
     this.renderRecipeList();
@@ -435,25 +465,6 @@ export class KitchenScene extends Phaser.Scene {
     const dishItem = findItem(dishId);
     const dishName = dishItem?.name ?? dishId;
 
-    // Show what we're cooking
-    this.add
-      .text(this.scale.width / 2, 160, `Cooking: ${dishName}`, {
-        fontFamily: "monospace",
-        fontSize: "16px",
-        color: "#f5a623",
-        backgroundColor: "#1a1a2e",
-        padding: { x: 12, y: 6 },
-      })
-      .setOrigin(0.5);
-
-    // Show the dish sprite
-    const spriteKey = `item-${dishId}`;
-    if (this.textures.exists(spriteKey)) {
-      this.add
-        .image(this.scale.width / 2, 240, spriteKey)
-        .setDisplaySize(80, 80);
-    }
-
     // Check if we have the dish in inventory already
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
@@ -462,22 +473,31 @@ export class KitchenScene extends Phaser.Scene {
     if (hasDish) {
       // We have the dish! Finish cooking immediately
       this.finishServiceCooking();
-    } else {
-      // Show "dish not ready" message and auto-finish after delay
-      this.add
-        .text(this.scale.width / 2, 320, "Preparing dish...", {
-          fontFamily: "monospace",
-          fontSize: "14px",
-          color: "#888899",
-          backgroundColor: "#1a1a2e",
-          padding: { x: 8, y: 4 },
-        })
-        .setOrigin(0.5);
-
-      this.cookingTimer = this.time.delayedCall(2_000, () => {
-        this.finishServiceCooking();
-      });
+      return;
     }
+
+    // Show what we need to cook
+    this.add
+      .text(this.scale.width / 2, 140, `Order: ${dishName}`, {
+        fontFamily: "monospace",
+        fontSize: "14px",
+        color: "#f5a623",
+        backgroundColor: "#1a1a2e",
+        padding: { x: 12, y: 6 },
+      })
+      .setOrigin(0.5);
+
+    // Show dish sprite
+    const spriteKey = `item-${dishId}`;
+    if (this.textures.exists(spriteKey)) {
+      this.add
+        .image(this.scale.width / 2, 180, spriteKey)
+        .setDisplaySize(48, 48);
+    }
+
+    // Show recipe steps for this dish (same as prep mode but filtered)
+    this.renderRecipeList();
+    this.renderInventory();
   }
 
   private finishServiceCooking(): void {

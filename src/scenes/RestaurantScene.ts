@@ -27,6 +27,14 @@ import {
   finishServing,
   defaultDurations,
 } from "../domain/day-cycle";
+import { pickRandomDish, menuFor } from "../domain/menu";
+import { findItem } from "../domain/items";
+import {
+  createInventory,
+  countItem,
+  removeItems,
+  type Inventory,
+} from "../domain/inventory";
 import {
   emptyTableIds,
   seatCustomer,
@@ -61,6 +69,14 @@ export class RestaurantScene extends Phaser.Scene {
     if (!this.textures.exists(tKey)) {
       this.load.image(tKey, tableAssetPath(type));
     }
+    // Preload dish sprites for this restaurant type
+    const menu = menuFor(type);
+    menu.items.forEach((mi) => {
+      const spriteKey = `item-${mi.dishId}`;
+      if (!this.textures.exists(spriteKey)) {
+        this.load.image(spriteKey, `assets/items/${mi.dishId}.png`);
+      }
+    });
   }
 
   create(): void {
@@ -187,8 +203,13 @@ export class RestaurantScene extends Phaser.Scene {
     const empty = emptyTableIds(cycle.phase.tableLayout);
     if (empty.length === 0) return;
 
+    const type = getActiveRestaurantType(this.registry);
+    const menuItem = pickRandomDish(type, Math.random());
     const tableId = empty[Math.floor(Math.random() * empty.length)];
-    const customer: Customer = { id: crypto.randomUUID() };
+    const customer: Customer = {
+      id: crypto.randomUUID(),
+      dishId: menuItem.dishId,
+    };
     const updatedLayout = seatCustomer(cycle.phase.tableLayout, tableId, customer.id);
     const updatedPhase = enqueueCustomer(
       { ...cycle.phase, tableLayout: updatedLayout },
@@ -199,12 +220,18 @@ export class RestaurantScene extends Phaser.Scene {
 
   private showTakingOrder(cycle: DayCycle): void {
     if (cycle.phase.tag !== "service") return;
+    if (cycle.phase.subPhase.tag !== "taking_order") return;
     this.clearStatus();
 
     const centerX = this.scale.width / 2;
+    const customer = cycle.phase.subPhase.customer;
+    const dishItem = findItem(customer.dishId);
+    const dishName = dishItem?.name ?? customer.dishId;
+
+    // Show order bubble
     this.statusObjects.push(
       this.add
-        .text(centerX, 220, "CUSTOMER WANTS TO ORDER!", {
+        .text(centerX, 200, `ORDER: ${dishName}`, {
           fontFamily: "monospace",
           fontSize: "16px",
           color: "#f5a623",
@@ -214,8 +241,35 @@ export class RestaurantScene extends Phaser.Scene {
         .setOrigin(0.5)
     );
 
+    // Show dish sprite
+    const spriteKey = `item-${customer.dishId}`;
+    if (this.textures.exists(spriteKey)) {
+      const sprite = this.add
+        .image(centerX, 250, spriteKey)
+        .setDisplaySize(56, 56);
+      this.statusObjects.push(sprite);
+    }
+
+    // Sell price info
+    const type = getActiveRestaurantType(this.registry);
+    const menu = menuFor(type);
+    const menuItem = menu.items.find((mi) => mi.dishId === customer.dishId);
+    const price = menuItem?.sellPrice ?? 5;
+
     this.statusObjects.push(
-      addMenuButton(this, centerX, 260, "Take Order", () => {
+      this.add
+        .text(centerX, 285, `Sell: $${price}`, {
+          fontFamily: "monospace",
+          fontSize: "12px",
+          color: "#4caf50",
+          backgroundColor: "#1a1a2e",
+          padding: { x: 6, y: 3 },
+        })
+        .setOrigin(0.5)
+    );
+
+    this.statusObjects.push(
+      addMenuButton(this, centerX, 320, "Cook Order", () => {
         const current: DayCycle | undefined = this.registry.get("dayCycle");
         if (
           current === undefined ||
@@ -227,7 +281,7 @@ export class RestaurantScene extends Phaser.Scene {
         const cooking = beginCooking(
           current.phase,
           crypto.randomUUID(),
-          "classic-burger" // TODO: use actual customer order dish
+          current.phase.subPhase.customer.dishId
         );
         const withCooking: DayCycle = { ...current, phase: cooking };
         this.registry.set("dayCycle", withCooking);
@@ -253,47 +307,101 @@ export class RestaurantScene extends Phaser.Scene {
 
     this.clearStatus();
     const centerX = this.scale.width / 2;
+    const order = cycle.phase.subPhase.order;
+    const dishItem = findItem(order.dishId);
+    const dishName = dishItem?.name ?? order.dishId;
 
-    this.statusObjects.push(
-      this.add
-        .text(centerX, 220, "DISH READY TO SERVE!", {
-          fontFamily: "monospace",
-          fontSize: "16px",
-          color: "#4caf50",
-          backgroundColor: "#1a1a2e",
-          padding: { x: 12, y: 8 },
+    // Check if we have the dish in inventory
+    const inv: Inventory =
+      this.registry.get("inventory") ?? createInventory();
+    const hasDish = countItem(inv, order.dishId) > 0;
+
+    if (hasDish) {
+      this.statusObjects.push(
+        this.add
+          .text(centerX, 210, `SERVE: ${dishName}`, {
+            fontFamily: "monospace",
+            fontSize: "16px",
+            color: "#4caf50",
+            backgroundColor: "#1a1a2e",
+            padding: { x: 12, y: 8 },
+          })
+          .setOrigin(0.5)
+      );
+
+      // Show dish sprite
+      const spriteKey = `item-${order.dishId}`;
+      if (this.textures.exists(spriteKey)) {
+        const sprite = this.add
+          .image(centerX, 260, spriteKey)
+          .setDisplaySize(56, 56);
+        this.statusObjects.push(sprite);
+      }
+
+      // Capture values before mutation
+      const servingCustomerId = order.customerId;
+      const servingDishId = order.dishId;
+
+      // Get sell price
+      const type = getActiveRestaurantType(this.registry);
+      const menu = menuFor(type);
+      const menuItem = menu.items.find((mi) => mi.dishId === servingDishId);
+      const price = menuItem?.sellPrice ?? 5;
+
+      this.statusObjects.push(
+        addMenuButton(this, centerX, 310, "Serve Dish", () => {
+          const current: DayCycle | undefined = this.registry.get("dayCycle");
+          if (
+            current === undefined ||
+            current.phase.tag !== "service" ||
+            current.phase.subPhase.tag !== "serving"
+          )
+            return;
+
+          // Remove dish from inventory
+          const currentInv: Inventory =
+            this.registry.get("inventory") ?? createInventory();
+          const afterRemove = removeItems(currentInv, servingDishId, 1);
+          if (afterRemove !== undefined) {
+            this.registry.set("inventory", afterRemove);
+          }
+
+          const served = finishServing(current.phase);
+          const updatedLayout = unseatCustomer(served.tableLayout, servingCustomerId);
+          const withServed: DayCycle = {
+            ...current,
+            phase: { ...served, tableLayout: updatedLayout },
+          };
+          this.registry.set("dayCycle", withServed);
+          this.clearStatus();
         })
-        .setOrigin(0.5)
-    );
+      );
+    } else {
+      // Don't have the dish — need to go cook it
+      this.statusObjects.push(
+        this.add
+          .text(centerX, 220, `Need: ${dishName}`, {
+            fontFamily: "monospace",
+            fontSize: "14px",
+            color: "#f44336",
+            backgroundColor: "#1a1a2e",
+            padding: { x: 12, y: 8 },
+          })
+          .setOrigin(0.5)
+      );
 
-    // Capture customerId before finishServing clears it
-    const servingCustomerId =
-      cycle.phase.subPhase.tag === "serving"
-        ? cycle.phase.subPhase.order.customerId
-        : undefined;
-
-    this.statusObjects.push(
-      addMenuButton(this, centerX, 260, "Serve Dish", () => {
-        const current: DayCycle | undefined = this.registry.get("dayCycle");
-        if (
-          current === undefined ||
-          current.phase.tag !== "service" ||
-          current.phase.subPhase.tag !== "serving"
-        )
-          return;
-
-        const served = finishServing(current.phase);
-        // Unseat the customer from their table
-        const custId = servingCustomerId ?? current.phase.subPhase.order.customerId;
-        const updatedLayout = unseatCustomer(served.tableLayout, custId);
-        const withServed: DayCycle = {
-          ...current,
-          phase: { ...served, tableLayout: updatedLayout },
-        };
-        this.registry.set("dayCycle", withServed);
-        this.clearStatus();
-      })
-    );
+      this.statusObjects.push(
+        this.add
+          .text(centerX, 260, "Dish not in inventory!", {
+            fontFamily: "monospace",
+            fontSize: "11px",
+            color: "#888899",
+            backgroundColor: "#1a1a2e",
+            padding: { x: 8, y: 4 },
+          })
+          .setOrigin(0.5)
+      );
+    }
   }
 
   private showWaitingStatus(queueLength: number): void {

@@ -1,8 +1,8 @@
 import { type TableLayout, createTableLayout } from "./tables";
 
-// Stubbed for future mechanics
 export interface Customer {
   readonly id: string;
+  readonly dishId: string;
 }
 
 export interface Order {
