@@ -2,7 +2,7 @@
 
 ## Game Overview
 
-A restaurant management game built with Phaser 3 + TypeScript + Vite. Players compete by running different restaurant types through a core loop of taking orders, cooking dishes, serving customers, and managing resources.
+A restaurant management game built with Phaser 3 + TypeScript + Vite. Players compete by running different restaurant types through a core day loop: shop for ingredients (30s grocery phase), prep in the kitchen (30s), then serve customers at the restaurant (120s service phase with order → cook → serve sub-cycle). Each day ends with an earnings summary (5 coins per customer served), then the next day starts.
 
 ## Architecture: Domain / Rendering Split
 
@@ -16,6 +16,8 @@ This separation is non-negotiable. Domain code must be testable without any game
 1. **Tests first, always.** Write a failing test before writing any domain code.
 2. Red → Green → Refactor. No exceptions.
 3. Every domain function must have corresponding tests.
+4. **Commit on green.** After each meaningful green step (tests pass + TS compiles), make a git commit with a descriptive message explaining the *why* of the change.
+5. **After every plan implementation, update this CLAUDE.md** to reflect new/changed modules, scenes, registry keys, and architecture decisions so the documentation stays current.
 
 ## Coding Conventions
 
@@ -71,30 +73,46 @@ public/
 ### Domain Modules (`src/domain/`)
 - **`pixel-font.ts`** — 5x7 bitmap pixel font. Supports A-Z, 0-9, space, and `$` (coin icon). Exports: `getGlyph`, `layoutLines`, `measureLineWidth`, `computeCenterOffset`, `createDefaultLayoutConfig`.
 - **`wallet.ts`** — Coin currency. `Wallet` interface with pure functions: `createWallet`, `initialWallet` (10 coins), `addCoins`, `spendCoins` (returns `undefined` if can't afford), `canAfford`, `formatCoins` (returns `"$N"` where `$` renders as coin icon).
-- **`save-game.ts`** — localStorage persistence. Pure serialization/validation with `SaveData` interface (version + coins). Exports: `SAVE_KEY`, `createSaveData`, `serializeSave`, `deserializeSave` (returns `undefined` on invalid input), `saveDataToWallet`.
+- **`save-game.ts`** — Legacy v1 localStorage persistence. Pure serialization/validation with `SaveData` interface (version 1 + coins). Exports: `SAVE_KEY`, `createSaveData`, `serializeSave`, `deserializeSave` (returns `undefined` on invalid input), `saveDataToWallet`. Still used by `save-slots.ts` for v1→v2 migration.
+- **`save-slots.ts`** — Multi-slot save system (v2). Types: `RestaurantType` (`"sushi" | "bbq" | "burger"`), `SaveSlot` (id, restaurantType, day, coins, scene, lastSaved), `SaveStore` (version 2 + slots array). Pure functions: `createSaveSlot`, `createSaveStore`, `addSlot`, `updateSlot`, `removeSlot`, `findSlot`, `findMostRecent`, `serializeStore`, `deserializeStore`, `loadStore` (v2 parse → v1 migration → empty), `sceneDisplayName`, `restaurantDisplayName`, `formatSlotSummary`. All timestamps/IDs are parameters (no side effects).
 - **`money.ts`** — Cents-based money type (legacy/unused). `Money` interface with `createMoney`, `fromDollars`, `addMoney`, `subtractMoney`.
+- **`day-cycle.ts`** — Core day loop state machine. Types: `Customer`, `Order`, `ServiceSubPhase` (discriminated: `waiting_for_customer` | `taking_order` | `cooking` | `serving`), `Phase` (discriminated: `grocery` | `kitchen_prep` | `service` | `day_end`), `ServicePhase`, `TimedPhase`, `DayCycle` (day + phase), `PhaseDurations`. Pure functions: `createDayCycle`, `tickTimer`, `isPhaseTimerExpired`, `isTimedPhase`, `timerFraction`, `advanceToKitchenPrep`, `advanceToService`, `advanceToDayEnd`, `advanceToNextDay`, `enqueueCustomer`, `beginTakingOrder`, `beginCooking`, `finishCooking`, `finishServing`, `activeSceneForPhase`, `calculateEarnings`. Default durations: grocery 30s, kitchen prep 30s, service 120s. Earnings: 5 coins per customer served. Time always injected via `elapsedMs` — no side effects.
 
 ### Scenes (`src/scenes/`)
-- **`TitleScene`** — Entry point. Loads title background/text images. Initializes wallet in Phaser registry (idempotent). Nav buttons to Grocery/Kitchen/Restaurant.
-- **`GroceryScene`** — Grocery store. Displays pixel-art title + coin HUD (top-right). Nav buttons to other scenes.
-- **`KitchenScene`** — Kitchen scene. Pixel-art title, no coin HUD. Nav buttons to other scenes.
-- **`RestaurantScene`** — Restaurant scene. Pixel-art title + coin HUD (top-right). Nav buttons to other scenes.
-- **`renderPixelText.ts`** — Rendering helper. `renderPixelText(scene, lines, options)` draws pixel font text with dark backdrop. Supports centered (`centerY`) or absolute (`x`/`y`) positioning. `addNavButton(scene, x, y, label, targetScene)` creates clickable scene-transition buttons.
+- **`TitleScene`** — Entry point. Loads title background/text images. Initializes `saveStore` in registry via `loadStore` (handles v1 migration). Shows menu: **New Game** (always), **Continue** + **Load Game** (if saves exist). New Game flow shows restaurant type selection (Burger Joint/BBQ/Sushi with difficulty). Initializes `dayCycle` in registry for new game (day 1) and continue (from saved day). Auto-save listeners: `changedata-wallet` updates active slot coins, `changedata-saveStore` persists to localStorage, `changedata-dayCycle` updates active slot's day via `recordDayAdvance`.
+- **`LoadGameScene`** — Lists save slots sorted by most recent, using `formatSlotSummary` labels. Clicking a slot sets `dayCycle` from slot's day and starts at GroceryScene. Back button returns to TitleScene.
+- **`GroceryScene`** — Grocery store. Calls `recordSceneEntry` on create. Displays pixel-art title + coin HUD (top-right). Timer bar at top shows "SHOPPING" countdown (30s). `update()` ticks timer via `tickTimer`, redraws bar. When expired, auto-transitions to KitchenScene via `advanceToKitchenPrep`.
+- **`KitchenScene`** — Dual-mode kitchen. **Prep mode** (`kitchen_prep` phase): timer bar with "PREPPING" countdown (30s), auto-transitions to RestaurantScene via `advanceToService`. **Cooking mode** (`service` phase, `cooking` sub-phase): shows "COOKING ORDER..." text, 2s delayed call to `finishCooking`, returns to RestaurantScene. Service timer keeps ticking during cooking; if it expires, transitions to day end.
+- **`RestaurantScene`** — Service phase hub. Timer bar shows "SERVICE" countdown (120s). Spawns customers every 10-15s via `enqueueCustomer`. Auto-calls `beginTakingOrder` when waiting + queue non-empty. Shows "Take Order" button → `beginCooking` → scene switch to KitchenScene. On return (serving sub-phase): shows "Serve Dish" button → `finishServing`. On timer expiry: `advanceToDayEnd` → dark overlay with day summary (customers served, earnings) + "Next Day" button → `advanceToNextDay` + `addCoins` → GroceryScene.
+- **`renderPixelText.ts`** — Rendering helper. `renderPixelText(scene, lines, options)` draws pixel font text with dark backdrop. Supports centered (`centerY`) or absolute (`x`/`y`) positioning. `addNavButton(scene, x, y, label, targetScene)` creates clickable scene-transition buttons. `addMenuButton(scene, x, y, label, onClick)` creates clickable buttons with callback.
+- **`timerBar.ts`** — Timer bar rendering helper. `renderTimerBar(scene, x, y, width, height, fraction, options?)` draws a color-coded progress bar (green >50%, yellow 25-50%, red <25%) with optional label. `formatTimeRemaining(ms)` formats milliseconds as `M:SS`.
+- **`saveHelpers.ts`** — `recordSceneEntry(registry, sceneKey)` updates the active slot's scene + lastSaved timestamp in the save store. `recordDayAdvance(registry, day)` updates the active slot's day field in the save store.
 
 ### Game Config (`src/main.ts`)
 - 800x600 canvas, `pixelArt: true`, background `#1d1d2e`
-- Scene order: Title → Grocery → Kitchen → Restaurant
+- Scene order: Title → Grocery → Kitchen → Restaurant → LoadGame
 
 ### State Management
-- **Phaser Registry** (`this.registry`) for cross-scene state. Wallet is stored as `"wallet"` key.
-- TitleScene initializes wallet on first visit; subsequent visits preserve existing value.
+- **Phaser Registry** (`this.registry`) for cross-scene state.
+- Registry keys:
+  - `"saveStore"` (`SaveStore`) — All save slots. Set by TitleScene init, wallet listener, `recordSceneEntry`, `recordDayAdvance`.
+  - `"activeSlotId"` (`string`) — ID of the currently active save slot. Set by menu selection.
+  - `"wallet"` (`Wallet`) — Current coin state. Set by menu selection and gameplay (day-end earnings).
+  - `"dayCycle"` (`DayCycle`) — Current day/phase state machine. Set by TitleScene (new game/continue), LoadGameScene (load), and scene `update()` loops.
+- TitleScene initializes `saveStore` on first visit; subsequent visits preserve existing value.
 - Scenes read wallet with fallback: `this.registry.get("wallet") ?? initialWallet`.
 
 ### Persistence (localStorage)
 - **Save key:** `"the-kitchen-competition"` (exported as `SAVE_KEY` from `save-game.ts`).
-- **Auto-save:** TitleScene listens to `changedata-wallet` on the registry. Any `registry.set("wallet", ...)` call automatically persists to localStorage — no manual save needed.
-- **Load on startup:** TitleScene reads localStorage on first visit, validates via `deserializeSave`, falls back to `initialWallet` if missing or corrupt.
-- **Domain/rendering split preserved:** All serialization/validation is pure domain code in `save-game.ts`. Only `TitleScene` touches `localStorage`.
+- **Save format:** v2 `SaveStore` with multiple `SaveSlot` entries (id, restaurantType, day, coins, scene, lastSaved).
+- **Auto-save:** Three registry listeners in TitleScene:
+  1. `changedata-wallet` → updates active slot's coins + lastSaved in store → triggers `registry.set("saveStore", ...)`
+  2. `changedata-saveStore` → `localStorage.setItem(SAVE_KEY, serializeStore(store))`
+  3. `changedata-dayCycle` → updates active slot's day via `recordDayAdvance`
+- **Scene tracking:** Gameplay scenes call `recordSceneEntry` on create, updating the active slot's scene + lastSaved.
+- **Load on startup:** TitleScene reads localStorage via `loadStore()`, which tries v2 parse → v1 migration → empty store.
+- **Backward compatibility:** v1 saves (`{"version":1,"coins":N}`) are auto-migrated to a v2 store with one slot (burger, day 1, GroceryScene).
+- **Domain/rendering split preserved:** All serialization/validation is pure domain code in `save-slots.ts` and `save-game.ts`. Only `TitleScene` touches `localStorage`.
 
 ## Asset Generation (Gemini Image Tool)
 
