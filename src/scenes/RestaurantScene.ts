@@ -24,6 +24,7 @@ import {
   enqueueCustomer,
   beginTakingOrder,
   beginCooking,
+  finishCooking,
   finishServing,
   abandonOrder,
   activeCustomerId,
@@ -271,38 +272,99 @@ export class RestaurantScene extends Phaser.Scene {
     const menuItem = menu.items.find((mi) => mi.dishId === customer.dishId);
     const price = menuItem?.sellPrice ?? 5;
 
-    this.statusObjects.push(
-      this.add
-        .text(centerX, 285, `Sell: $${price}`, {
-          fontFamily: "monospace",
-          fontSize: "12px",
-          color: "#4caf50",
-          backgroundColor: "#1a1a2e",
-          padding: { x: 6, y: 3 },
+    // Check if dish is already in inventory — offer direct serve
+    const inv: Inventory =
+      this.registry.get("inventory") ?? createInventory();
+    const hasDish = countItem(inv, customer.dishId) > 0;
+
+    if (hasDish) {
+      // "In Stock" indicator
+      this.statusObjects.push(
+        this.add
+          .text(centerX, 285, `In stock! Sell: $${price}`, {
+            fontFamily: "monospace",
+            fontSize: "12px",
+            color: "#4caf50",
+            backgroundColor: "#1a1a2e",
+            padding: { x: 6, y: 3 },
+          })
+          .setOrigin(0.5)
+      );
+
+      const serveDishId = customer.dishId;
+      const serveCustomerId = customer.id;
+      this.statusObjects.push(
+        addMenuButton(this, centerX - 80, 320, "Serve Now", () => {
+          const current: DayCycle | undefined = this.registry.get("dayCycle");
+          if (
+            current === undefined ||
+            current.phase.tag !== "service" ||
+            current.phase.subPhase.tag !== "taking_order"
+          )
+            return;
+
+          // Transition: taking_order → cooking → serving → finishServing
+          const cooking = beginCooking(
+            current.phase,
+            crypto.randomUUID(),
+            serveDishId
+          );
+          const serving = finishCooking(cooking);
+          const served = finishServing(serving, price);
+          const updatedLayout = unseatCustomer(
+            served.tableLayout,
+            serveCustomerId
+          );
+
+          // Remove dish from inventory
+          const currentInv: Inventory =
+            this.registry.get("inventory") ?? createInventory();
+          const afterRemove = removeItems(currentInv, serveDishId, 1);
+          if (afterRemove !== undefined) {
+            this.registry.set("inventory", afterRemove);
+          }
+
+          this.registry.set("dayCycle", {
+            ...current,
+            phase: { ...served, tableLayout: updatedLayout },
+          });
+          this.clearStatus();
         })
-        .setOrigin(0.5)
-    );
+      );
+    } else {
+      this.statusObjects.push(
+        this.add
+          .text(centerX, 285, `Sell: $${price}`, {
+            fontFamily: "monospace",
+            fontSize: "12px",
+            color: "#4caf50",
+            backgroundColor: "#1a1a2e",
+            padding: { x: 6, y: 3 },
+          })
+          .setOrigin(0.5)
+      );
 
-    this.statusObjects.push(
-      addMenuButton(this, centerX - 80, 320, "Cook Order", () => {
-        const current: DayCycle | undefined = this.registry.get("dayCycle");
-        if (
-          current === undefined ||
-          current.phase.tag !== "service" ||
-          current.phase.subPhase.tag !== "taking_order"
-        )
-          return;
+      this.statusObjects.push(
+        addMenuButton(this, centerX - 80, 320, "Cook Order", () => {
+          const current: DayCycle | undefined = this.registry.get("dayCycle");
+          if (
+            current === undefined ||
+            current.phase.tag !== "service" ||
+            current.phase.subPhase.tag !== "taking_order"
+          )
+            return;
 
-        const cooking = beginCooking(
-          current.phase,
-          crypto.randomUUID(),
-          current.phase.subPhase.customer.dishId
-        );
-        const withCooking: DayCycle = { ...current, phase: cooking };
-        this.registry.set("dayCycle", withCooking);
-        this.scene.start("KitchenScene");
-      })
-    );
+          const cooking = beginCooking(
+            current.phase,
+            crypto.randomUUID(),
+            current.phase.subPhase.customer.dishId
+          );
+          const withCooking: DayCycle = { ...current, phase: cooking };
+          this.registry.set("dayCycle", withCooking);
+          this.scene.start("KitchenScene");
+        })
+      );
+    }
 
     this.statusObjects.push(
       addMenuButton(this, centerX + 80, 320, "Skip", () => {
