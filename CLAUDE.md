@@ -53,6 +53,7 @@ npm run build      # Production build
 npm test           # Run tests once
 npm run test:watch # Run tests in watch mode
 npm run coverage   # Run tests with coverage report
+npm run deploy     # Build and deploy to GitHub Pages (gh-pages branch)
 ```
 
 ## Project Structure
@@ -130,6 +131,13 @@ public/
 - **Backgrounds (9):** `burger-grocery-bg.png`, `bbq-grocery-bg.png`, `sushi-grocery-bg.png`, `burger-kitchen-bg.png`, `bbq-kitchen-bg.png`, `sushi-kitchen-bg.png`, `burger-restaurant-bg.png`, `bbq-restaurant-bg.png`, `sushi-restaurant-bg.png`
 - **Table sprites (3):** `burger-table.png`, `bbq-table.png`, `sushi-table.png` (transparent RGBA PNGs)
 - **Legacy generic backgrounds:** `grocery-bg.png`, `kitchen-bg.png`, `restaurant-bg.png` (kept as fallbacks, no longer loaded by scenes)
+
+## Deployment
+
+- **Hosted at:** `https://deontologician.github.io/the-kitchen-competition/`
+- **Method:** `npm run deploy` builds with Vite and pushes `dist/` to the `gh-pages` branch via the `gh-pages` npm package. No GitHub Actions needed.
+- **Vite base path:** `base: "/the-kitchen-competition/"` in `vite.config.ts` ensures asset URLs resolve correctly on GitHub Pages.
+- **GitHub Pages source:** `gh-pages` branch, root (`/`).
 
 ## Asset Generation (Gemini Image Tool)
 
