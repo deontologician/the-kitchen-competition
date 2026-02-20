@@ -35,6 +35,7 @@ import {
   createInventory,
   countItem,
   removeItems,
+  itemCounts,
   type Inventory,
 } from "../domain/inventory";
 import {
@@ -54,6 +55,7 @@ export class RestaurantScene extends Phaser.Scene {
   private timerLabel?: Phaser.GameObjects.Text;
   private customerSpawnTimer?: Phaser.Time.TimerEvent;
   private statusObjects: Phaser.GameObjects.GameObject[] = [];
+  private inventoryObjects: Phaser.GameObjects.GameObject[] = [];
   private dayEndShown = false;
   private tableSprites: Phaser.GameObjects.Image[] = [];
 
@@ -163,6 +165,7 @@ export class RestaurantScene extends Phaser.Scene {
     ] as Phaser.GameObjects.Text;
 
     this.updateTableTints(updated.phase);
+    this.renderInventorySidebar();
 
     if (isPhaseTimerExpired(updated)) {
       this.customerSpawnTimer?.destroy();
@@ -538,6 +541,65 @@ export class RestaurantScene extends Phaser.Scene {
       const sprite = this.tableSprites[i];
       sprite.setTint(table.customerId !== undefined ? 0x66ff66 : 0xffffff);
     });
+  }
+
+  private renderInventorySidebar(): void {
+    this.inventoryObjects.forEach((obj) => obj.destroy());
+    this.inventoryObjects = [];
+
+    const inv: Inventory =
+      this.registry.get("inventory") ?? createInventory();
+    const counts = itemCounts(inv);
+    if (counts.length === 0) return;
+
+    const x = this.scale.width - 30;
+    let y = 90;
+
+    // Show dishes first, then prepped items
+    const dishCounts = counts.filter((c) => {
+      const item = findItem(c.itemId);
+      return item !== undefined && item.category === "dish";
+    });
+    const preppedCounts = counts.filter((c) => {
+      const item = findItem(c.itemId);
+      return item !== undefined && item.category === "prepped";
+    });
+
+    const renderEntry = (itemId: string, count: number): void => {
+      const item = findItem(itemId);
+      const name = item?.name ?? itemId;
+      // Truncate long names
+      const display = name.length > 12 ? name.slice(0, 11) + "." : name;
+      const label = this.add
+        .text(x, y, `${display} x${count}`, {
+          fontFamily: "monospace",
+          fontSize: "10px",
+          color: "#ffffff",
+          backgroundColor: "#000000",
+          padding: { x: 3, y: 1 },
+        })
+        .setOrigin(1, 0)
+        .setAlpha(0.8);
+      this.inventoryObjects.push(label);
+      y += 14;
+    };
+
+    dishCounts.forEach((c) => renderEntry(c.itemId, c.count));
+
+    if (dishCounts.length > 0 && preppedCounts.length > 0) {
+      const divider = this.add
+        .text(x, y, "───────", {
+          fontFamily: "monospace",
+          fontSize: "8px",
+          color: "#666677",
+        })
+        .setOrigin(1, 0)
+        .setAlpha(0.6);
+      this.inventoryObjects.push(divider);
+      y += 10;
+    }
+
+    preppedCounts.forEach((c) => renderEntry(c.itemId, c.count));
   }
 
   private clearStatus(): void {
