@@ -26,7 +26,7 @@ import {
   createInventory,
   countItem,
   hasIngredientsFor,
-  executeRecipeStep,
+  removeItemSet,
   itemCounts,
   type Inventory,
 } from "../domain/inventory";
@@ -129,11 +129,16 @@ export class KitchenScene extends Phaser.Scene {
     this.registry.set("dayCycle", updated);
     if (!isTimedPhase(updated.phase)) return;
 
-    // Update recipe progress bar if cooking
+    // Update recipe progress bar if cooking, clean up if done
     if (this.activeRecipe !== undefined) {
       const elapsed = Date.now() - this.recipeStartTime;
       const fraction = Math.min(1, elapsed / this.activeRecipe.timeMs);
       this.updateProgressBar(fraction, this.activeRecipe);
+    } else {
+      this.progressBar?.destroy();
+      this.progressLabel?.destroy();
+      this.progressBar = undefined;
+      this.progressLabel = undefined;
     }
 
     // Determine label based on current mode
@@ -290,32 +295,18 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   private startRecipe(recipe: RecipeStep): void {
+    if (this.activeRecipe !== undefined) return; // already cooking
+
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
     if (!hasIngredientsFor(inv, recipe)) return;
 
+    // Consume inputs using domain function
+    const afterConsume = removeItemSet(inv, recipe.inputs);
+    if (afterConsume === undefined) return;
+
     this.activeRecipe = recipe;
     this.recipeStartTime = Date.now();
-
-    // Consume inputs immediately
-    const afterConsume = recipe.inputs.reduce<Inventory | undefined>(
-      (current, input) => {
-        if (current === undefined) return undefined;
-        const items = current.items.filter((i) => i.itemId === input.itemId);
-        if (items.length < input.quantity) return undefined;
-        // Remove items
-        let result = current;
-        for (let n = 0; n < input.quantity; n++) {
-          const idx = result.items.findIndex((i) => i.itemId === input.itemId);
-          if (idx === -1) return undefined;
-          result = { items: [...result.items.slice(0, idx), ...result.items.slice(idx + 1)] };
-        }
-        return result;
-      },
-      inv
-    );
-
-    if (afterConsume === undefined) return;
     this.registry.set("inventory", afterConsume);
 
     // Refresh display
