@@ -15,4 +15,7 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [TitleScene, GroceryScene, KitchenScene, RestaurantScene, LoadGameScene, PauseScene],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// Expose for debug/testing
+(window as unknown as Record<string, unknown>).__PHASER_GAME__ = game;

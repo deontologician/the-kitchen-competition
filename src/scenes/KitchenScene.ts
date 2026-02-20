@@ -185,16 +185,8 @@ export class KitchenScene extends Phaser.Scene {
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
 
-    // During kitchen prep: only prep/cook recipes
-    // During service cooking: all recipes including assemble
-    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
-    const isServiceCooking =
-      cycle !== undefined &&
-      cycle.phase.tag === "service" &&
-      cycle.phase.subPhase.tag === "cooking";
-    const filteredRecipes = isServiceCooking
-      ? recipes
-      : recipes.filter((r) => r.method === "prep" || r.method === "cook");
+    // Show all recipes (prep, cook, and assemble) in both kitchen prep and service cooking
+    const filteredRecipes = recipes;
 
     // Show up to 7 recipes, prioritizing craftable ones
     const sortedRecipes = [...filteredRecipes].sort((a, b) => {
