@@ -7,10 +7,10 @@ Build a complete restaurant management game where players:
 3. **Serve** customers by taking orders, cooking dishes, and delivering them
 
 ## Current State (as of latest session)
-- **Phases 1-5 COMPLETE**: Full game loop polished with difficulty scaling
-- All 372 domain tests passing across 13 test files
+- **Phases 1-7 COMPLETE**: Full game loop polished with difficulty scaling, refactored
+- 396 domain tests passing across 15 test files
 - All scenes compile and are playtested via Playwright
-- Game features: grocery shopping, kitchen prep, service with order bubbles, patience timers, day scaling, enhanced day-end summary
+- Game features: grocery shopping, kitchen prep, service with order bubbles, patience timers, day scaling, enhanced day-end summary, ingredient expiration, tutorial hints, animations, leaderboard, branded ID types
 
 ## Implementation Phases
 
