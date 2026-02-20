@@ -7,10 +7,10 @@ Build a complete restaurant management game where players:
 3. **Serve** customers by taking orders, cooking dishes, and delivering them
 
 ## Current State (as of latest session)
-- **Phases 1-4 COMPLETE**: Full game loop working end-to-end
-- All 352 domain tests passing
+- **Phases 1-5 MOSTLY COMPLETE**: Full game loop working with economy + patience
+- All 362 domain tests passing
 - All scenes compile and are playtested via Playwright
-- Full serve flow verified: grocery → kitchen prep → service (order → cook → serve → day end with earnings)
+- Full serve flow verified: grocery → kitchen prep → service (order → cook → serve → day end with per-dish earnings)
 
 ## Implementation Phases
 
@@ -46,13 +46,16 @@ Build a complete restaurant management game where players:
 - [x] RestaurantScene: "Serve" button removes dish from inventory
 - [x] Abandon order mechanic: "Skip" in restaurant, "Abandon Order" in kitchen (commit `2394ec8`)
 - [x] Assembly recipes available during kitchen prep (commit `e760347`)
-- [ ] Earnings: sell price from menu (not flat $5) — **NEXT**
-- Commits: `295613f`, `0bd3db4`, `2394ec8`, `e760347`
+- [x] Earnings: per-dish sell price from menu (commit `da7aebb`)
+- Commits: `295613f`, `0bd3db4`, `2394ec8`, `e760347`, `da7aebb`
 
-### Phase 5: Polish & Game Feel
-- [ ] Ingredient expiration warnings
-- [ ] Better visual feedback (animations)
-- [ ] Customer patience timer
+### Phase 5: Polish & Game Feel ✅ MOSTLY COMPLETE
+- [x] Economy rebalance: starting money $20, profitable sell prices (commit `77a3c7a`)
+- [x] Inventory sidebar in restaurant scene (commit `768c96d`)
+- [x] Customer patience timer with color-coded table tints (commit `df81f08`)
+- [ ] Customer order bubbles over tables — **NEXT**
+- [ ] Multiple simultaneous customers (parallel orders)
+- [ ] Better visual feedback (animations, transitions)
 - [ ] Score/rating system
 - [ ] Tutorial overlay
 
@@ -75,18 +78,20 @@ Per CLAUDE.md methodology:
 ### Key Domain Changes Made
 - `Order.dishId` — tracks which dish a customer ordered
 - `Customer.dishId` — tracks what dish a customer wants when they arrive
+- `Customer.patienceMs` / `maxPatienceMs` — ticking patience with color feedback
 - `beginCooking(phase, orderId, dishId)` — now takes dishId parameter
+- `finishServing(phase, dishEarnings)` — accumulates per-dish earnings
+- `tickCustomerPatience(phase, elapsedMs)` — decrements patience of queued customers
+- `removeExpiredCustomers(phase)` — removes patience-expired customers and unseats them
+- `createCustomer(id, dishId, patienceMs?)` — factory with default 60s patience
 
 ### Item Sprite Rendering
 - All 74 items have PNGs at `public/assets/items/{itemId}.png` (64x64, transparent)
 - Loaded in scene `preload()`, referenced as `item-${itemId}`
 
-## Files Modified This Session
-- `src/domain/day-cycle.ts` — Added dishId to Order and Customer
-- `src/domain/__tests__/day-cycle.test.ts` — Updated all tests with dishId
-- `src/scenes/GroceryScene.ts` — Complete rewrite with purchasing UI
-- `src/scenes/KitchenScene.ts` — Complete rewrite with recipe crafting UI
-- `src/scenes/TitleScene.ts` — Added inventory init
-- `src/scenes/LoadGameScene.ts` — Added inventory init
-- `src/scenes/RestaurantScene.ts` — Updated beginCooking call (TODO placeholder)
-- `CLAUDE.md` — Added refactoring methodology
+### Table Tint Color Coding
+- White: empty table
+- Green: customer with >50% patience remaining
+- Yellow: customer with 25-50% patience
+- Red: customer with <25% patience
+- Blue: actively being served (taking order / cooking / serving)
