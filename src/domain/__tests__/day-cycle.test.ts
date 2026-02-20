@@ -272,6 +272,26 @@ describe("advanceToDayEnd", () => {
     const ended = advanceToDayEnd(service);
     expect(ended.day).toBe(4);
   });
+
+  it("carries customersLost from service phase", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    // Simulate 2 lost customers via removeExpiredCustomers
+    const c1 = createCustomer("c1", "classic-burger", 0);
+    const c2 = createCustomer("c2", "cheeseburger", 0);
+    const phase = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
+    const cleaned = removeExpiredCustomers(phase);
+
+    const withLost: DayCycle = { ...service, phase: cleaned };
+    const ended = advanceToDayEnd(withLost);
+    expect(ended.phase.tag).toBe("day_end");
+    if (ended.phase.tag === "day_end") {
+      expect(ended.phase.customersLost).toBe(2);
+    }
+  });
 });
 
 describe("advanceToNextDay", () => {
@@ -790,6 +810,25 @@ describe("removeExpiredCustomers", () => {
     const phase = enqueueCustomer(service.phase, c1);
 
     const cleaned = removeExpiredCustomers(phase);
+    expect(cleaned.customerQueue.length).toBe(1);
+  });
+
+  it("increments customersLost count for expired customers", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    const c1 = createCustomer("c1", "classic-burger", 0); // expired
+    const c2 = createCustomer("c2", "cheeseburger", 0); // expired
+    const c3 = createCustomer("c3", "loaded-fries", 30_000); // still patient
+    const phase = enqueueCustomer(
+      enqueueCustomer(enqueueCustomer(service.phase, c1), c2),
+      c3
+    );
+
+    const cleaned = removeExpiredCustomers(phase);
+    expect(cleaned.customersLost).toBe(2);
     expect(cleaned.customerQueue.length).toBe(1);
   });
 });

@@ -575,34 +575,55 @@ export class RestaurantScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.add
-      .text(
-        centerX,
-        centerY - 30,
-        `Customers served: ${cycle.phase.customersServed}`,
-        {
-          fontFamily: "monospace",
-          fontSize: "16px",
-          color: "#ffffff",
-        }
-      )
-      .setOrigin(0.5);
+    // Stats
+    const earnings = cycle.phase.earnings;
+    const served = cycle.phase.customersServed;
+    const lost = cycle.phase.customersLost;
+    const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
+    const newWallet = addCoins(wallet, earnings);
+
+    let yPos = centerY - 30;
 
     this.add
-      .text(centerX, centerY + 10, `Earnings: $${cycle.phase.earnings}`, {
+      .text(centerX, yPos, `Customers served: ${served}`, {
+        fontFamily: "monospace",
+        fontSize: "16px",
+        color: "#ffffff",
+      })
+      .setOrigin(0.5);
+    yPos += 28;
+
+    if (lost > 0) {
+      this.add
+        .text(centerX, yPos, `Customers lost: ${lost}`, {
+          fontFamily: "monospace",
+          fontSize: "14px",
+          color: "#ff6666",
+        })
+        .setOrigin(0.5);
+      yPos += 24;
+    }
+
+    this.add
+      .text(centerX, yPos, `Earnings: $${earnings}`, {
         fontFamily: "monospace",
         fontSize: "16px",
         color: "#4caf50",
       })
       .setOrigin(0.5);
+    yPos += 28;
 
-    addMenuButton(this, centerX, centerY + 70, "Next Day", () => {
-      // Add earnings to wallet
-      const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
-      this.registry.set(
-        "wallet",
-        addCoins(wallet, cycle.phase.tag === "day_end" ? cycle.phase.earnings : 0)
-      );
+    this.add
+      .text(centerX, yPos, `Total: $${newWallet.coins}`, {
+        fontFamily: "monospace",
+        fontSize: "14px",
+        color: "#f5a623",
+      })
+      .setOrigin(0.5);
+    yPos += 40;
+
+    addMenuButton(this, centerX, yPos, "Next Day", () => {
+      this.registry.set("wallet", newWallet);
 
       const next = advanceToNextDay(cycle, defaultDurations);
       this.registry.set("dayCycle", next);

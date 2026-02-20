@@ -51,6 +51,7 @@ export type Phase =
       readonly durationMs: number;
       readonly subPhase: ServiceSubPhase;
       readonly customersServed: number;
+      readonly customersLost: number;
       readonly earnings: number;
       readonly customerQueue: ReadonlyArray<Customer>;
       readonly tableLayout: TableLayout;
@@ -58,6 +59,7 @@ export type Phase =
   | {
       readonly tag: "day_end";
       readonly customersServed: number;
+      readonly customersLost: number;
       readonly earnings: number;
     };
 
@@ -159,6 +161,7 @@ export const advanceToService = (
     durationMs,
     subPhase: { tag: "waiting_for_customer" },
     customersServed: 0,
+    customersLost: 0,
     earnings: 0,
     customerQueue: [],
     tableLayout: createTableLayout(tables),
@@ -168,6 +171,8 @@ export const advanceToService = (
 export const advanceToDayEnd = (cycle: DayCycle): DayCycle => {
   const served =
     cycle.phase.tag === "service" ? cycle.phase.customersServed : 0;
+  const lost =
+    cycle.phase.tag === "service" ? cycle.phase.customersLost : 0;
   const earned =
     cycle.phase.tag === "service" ? cycle.phase.earnings : 0;
   return {
@@ -175,6 +180,7 @@ export const advanceToDayEnd = (cycle: DayCycle): DayCycle => {
     phase: {
       tag: "day_end",
       customersServed: served,
+      customersLost: lost,
       earnings: earned,
     },
   };
@@ -297,7 +303,12 @@ export const removeExpiredCustomers = (
     (layout, c) => unseatCustomer(layout, c.id),
     phase.tableLayout
   );
-  return { ...phase, customerQueue: remaining, tableLayout: updatedLayout };
+  return {
+    ...phase,
+    customerQueue: remaining,
+    tableLayout: updatedLayout,
+    customersLost: phase.customersLost + expired.length,
+  };
 };
 
 // ---------------------------------------------------------------------------
