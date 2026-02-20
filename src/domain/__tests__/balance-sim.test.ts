@@ -255,3 +255,97 @@ describe("runSimulation", () => {
     expect(r1).toEqual(r2);
   });
 });
+
+describe("viability: all restaurant types survive 15 days", () => {
+  const strategies = [
+    { name: "naive", fn: naiveStrategy },
+    { name: "cheapest-first", fn: cheapestFirstStrategy },
+    { name: "profit-first", fn: profitFirstStrategy },
+  ] as const;
+
+  const types = ["burger", "bbq", "sushi"] as const;
+
+  types.forEach((type) => {
+    strategies.forEach((strat) => {
+      it(`${type} + ${strat.name}: not bankrupt after 15 days`, () => {
+        const result = runSimulation({
+          restaurantType: type,
+          strategy: strat.fn,
+          strategyName: strat.name,
+          days: 15,
+          seed: 42,
+          startingCoins: 20,
+        });
+        expect(result.wentBankrupt).toBe(false);
+        expect(result.finalWallet).toBeGreaterThan(0);
+      });
+    });
+  });
+});
+
+describe("property-based: economy stability", () => {
+  it("no seed causes bankruptcy within 10 days (profit-first strategy)", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 100_000 }),
+        fc.constantFrom("burger" as const, "bbq" as const, "sushi" as const),
+        (seed, type) => {
+          const result = runSimulation({
+            restaurantType: type,
+            strategy: profitFirstStrategy,
+            strategyName: "profit",
+            days: 10,
+            seed,
+            startingCoins: 20,
+          });
+          return !result.wentBankrupt;
+        }
+      ),
+      { numRuns: 200 }
+    );
+  });
+
+  it("wallet never goes negative", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 100_000 }),
+        fc.constantFrom("burger" as const, "bbq" as const, "sushi" as const),
+        (seed, type) => {
+          const result = runSimulation({
+            restaurantType: type,
+            strategy: profitFirstStrategy,
+            strategyName: "profit",
+            days: 15,
+            seed,
+            startingCoins: 20,
+          });
+          return result.days.every((d) => d.walletAfter >= 0);
+        }
+      ),
+      { numRuns: 200 }
+    );
+  });
+
+  it("served + lost always equals arrived", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 10_000 }),
+        fc.constantFrom("burger" as const, "bbq" as const, "sushi" as const),
+        (seed, type) => {
+          const result = runSimulation({
+            restaurantType: type,
+            strategy: naiveStrategy,
+            strategyName: "naive",
+            days: 10,
+            seed,
+            startingCoins: 20,
+          });
+          return result.days.every(
+            (d) => d.customersServed + d.customersLost === d.customersArrived
+          );
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});
