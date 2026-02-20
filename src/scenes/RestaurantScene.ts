@@ -57,6 +57,9 @@ const BUBBLE_OFFSET_Y = -60; // above table center
 const PATIENCE_BAR_W = 50;
 const PATIENCE_BAR_H = 5;
 
+const patienceColor = (fraction: number): number =>
+  fraction > 0.5 ? 0x66ff66 : fraction > 0.25 ? 0xffff66 : 0xff6666;
+
 export class RestaurantScene extends Phaser.Scene {
   private timerGraphics?: Phaser.GameObjects.Graphics;
   private timerLabel?: Phaser.GameObjects.Text;
@@ -297,11 +300,7 @@ export class RestaurantScene extends Phaser.Scene {
       this.statusObjects.push(sprite);
     }
 
-    // Sell price info
-    const type = getActiveRestaurantType(this.registry);
-    const menu = menuFor(type);
-    const menuItem = menu.items.find((mi) => mi.dishId === customer.dishId);
-    const price = menuItem?.sellPrice ?? 5;
+    const price = this.getPriceForDish(customer.dishId);
 
     // Check if dish is already in inventory — offer direct serve
     const inv: Inventory =
@@ -347,13 +346,7 @@ export class RestaurantScene extends Phaser.Scene {
             serveCustomerId
           );
 
-          // Remove dish from inventory
-          const currentInv: Inventory =
-            this.registry.get("inventory") ?? createInventory();
-          const afterRemove = removeItems(currentInv, serveDishId, 1);
-          if (afterRemove !== undefined) {
-            this.registry.set("inventory", afterRemove);
-          }
+          this.removeFromInventory(serveDishId);
 
           this.registry.set("dayCycle", {
             ...current,
@@ -475,11 +468,7 @@ export class RestaurantScene extends Phaser.Scene {
       const servingCustomerId = order.customerId;
       const servingDishId = order.dishId;
 
-      // Get sell price
-      const type = getActiveRestaurantType(this.registry);
-      const menu = menuFor(type);
-      const menuItem = menu.items.find((mi) => mi.dishId === servingDishId);
-      const price = menuItem?.sellPrice ?? 5;
+      const price = this.getPriceForDish(servingDishId);
 
       this.statusObjects.push(
         addMenuButton(this, centerX, 310, "Serve Dish", () => {
@@ -491,13 +480,7 @@ export class RestaurantScene extends Phaser.Scene {
           )
             return;
 
-          // Remove dish from inventory
-          const currentInv: Inventory =
-            this.registry.get("inventory") ?? createInventory();
-          const afterRemove = removeItems(currentInv, servingDishId, 1);
-          if (afterRemove !== undefined) {
-            this.registry.set("inventory", afterRemove);
-          }
+          this.removeFromInventory(servingDishId);
 
           const served = finishServing(current.phase, price);
           const updatedLayout = unseatCustomer(served.tableLayout, servingCustomerId);
@@ -627,6 +610,22 @@ export class RestaurantScene extends Phaser.Scene {
     });
   }
 
+  private getPriceForDish(dishId: string): number {
+    const type = getActiveRestaurantType(this.registry);
+    const menu = menuFor(type);
+    const menuItem = menu.items.find((mi) => mi.dishId === dishId);
+    return menuItem?.sellPrice ?? 5;
+  }
+
+  private removeFromInventory(dishId: string): void {
+    const inv: Inventory =
+      this.registry.get("inventory") ?? createInventory();
+    const afterRemove = removeItems(inv, dishId, 1);
+    if (afterRemove !== undefined) {
+      this.registry.set("inventory", afterRemove);
+    }
+  }
+
   private renderCoinHud(): void {
     const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
     const coinText = formatCoins(wallet);
@@ -689,12 +688,8 @@ export class RestaurantScene extends Phaser.Scene {
       // Tint table
       if (isActive) {
         sprite.setTint(0x6699ff); // blue
-      } else if (patienceFrac > 0.5) {
-        sprite.setTint(0x66ff66); // green
-      } else if (patienceFrac > 0.25) {
-        sprite.setTint(0xffff66); // yellow
       } else {
-        sprite.setTint(0xff6666); // red
+        sprite.setTint(patienceColor(patienceFrac));
       }
 
       // Render order bubble (dish sprite) above table
@@ -718,13 +713,7 @@ export class RestaurantScene extends Phaser.Scene {
           gfx.fillStyle(0x333333, 0.8);
           gfx.fillRect(barX, barY, PATIENCE_BAR_W, PATIENCE_BAR_H);
           // Fill
-          const barColor =
-            patienceFrac > 0.5
-              ? 0x66ff66
-              : patienceFrac > 0.25
-                ? 0xffff66
-                : 0xff6666;
-          gfx.fillStyle(barColor, 1);
+          gfx.fillStyle(patienceColor(patienceFrac), 1);
           gfx.fillRect(
             barX,
             barY,
