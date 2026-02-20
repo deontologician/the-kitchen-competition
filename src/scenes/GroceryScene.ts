@@ -11,6 +11,7 @@ import {
   createDefaultLayoutConfig,
 } from "../domain/pixel-font";
 import { recordSceneEntry } from "./saveHelpers";
+import { showTutorialHint } from "./tutorialHint";
 import { renderTimerBar, formatTimeRemaining } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
@@ -98,6 +99,7 @@ export class GroceryScene extends Phaser.Scene {
 
     this.renderItemGrid();
     this.renderCoinHud();
+    showTutorialHint(this, "grocery");
 
     this.input.keyboard!.on("keydown-ESC", () => {
       this.scene.pause();

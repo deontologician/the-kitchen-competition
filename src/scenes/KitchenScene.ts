@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { renderPixelText, addMenuButton } from "./renderPixelText";
 import { recordSceneEntry } from "./saveHelpers";
+import { showTutorialHint } from "./tutorialHint";
 import { renderTimerBar, formatTimeRemaining } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
@@ -108,6 +109,7 @@ export class KitchenScene extends Phaser.Scene {
       renderPixelText(this, ["THE KITCHEN"], { centerY: 110 });
       this.renderRecipeList();
       this.renderInventory();
+      showTutorialHint(this, "kitchen_prep");
     } else if (
       cycle.phase.tag === "service" &&
       cycle.phase.subPhase.tag === "cooking"
