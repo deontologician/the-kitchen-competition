@@ -25,6 +25,8 @@ import {
   beginTakingOrder,
   beginCooking,
   finishServing,
+  abandonOrder,
+  activeCustomerId,
   defaultDurations,
 } from "../domain/day-cycle";
 import { pickRandomDish, menuFor } from "../domain/menu";
@@ -269,7 +271,7 @@ export class RestaurantScene extends Phaser.Scene {
     );
 
     this.statusObjects.push(
-      addMenuButton(this, centerX, 320, "Cook Order", () => {
+      addMenuButton(this, centerX - 80, 320, "Cook Order", () => {
         const current: DayCycle | undefined = this.registry.get("dayCycle");
         if (
           current === undefined ||
@@ -286,6 +288,31 @@ export class RestaurantScene extends Phaser.Scene {
         const withCooking: DayCycle = { ...current, phase: cooking };
         this.registry.set("dayCycle", withCooking);
         this.scene.start("KitchenScene");
+      })
+    );
+
+    this.statusObjects.push(
+      addMenuButton(this, centerX + 80, 320, "Skip", () => {
+        const current: DayCycle | undefined = this.registry.get("dayCycle");
+        if (
+          current === undefined ||
+          current.phase.tag !== "service" ||
+          current.phase.subPhase.tag !== "taking_order"
+        )
+          return;
+
+        const custId = activeCustomerId(current.phase);
+        const abandoned = abandonOrder(current.phase);
+        const updatedLayout =
+          custId !== undefined
+            ? unseatCustomer(abandoned.tableLayout, custId)
+            : abandoned.tableLayout;
+        const withAbandoned: DayCycle = {
+          ...current,
+          phase: { ...abandoned, tableLayout: updatedLayout },
+        };
+        this.registry.set("dayCycle", withAbandoned);
+        this.clearStatus();
       })
     );
   }

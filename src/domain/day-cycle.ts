@@ -216,6 +216,33 @@ export const finishCooking = (phase: ServicePhase): ServicePhase => {
   };
 };
 
+export const activeCustomerId = (phase: ServicePhase): string | undefined => {
+  switch (phase.subPhase.tag) {
+    case "taking_order":
+      return phase.subPhase.customer.id;
+    case "cooking":
+      return phase.subPhase.order.customerId;
+    case "serving":
+      return phase.subPhase.order.customerId;
+    case "waiting_for_customer":
+      return undefined;
+    default: {
+      const _exhaustive: never = phase.subPhase;
+      return _exhaustive;
+    }
+  }
+};
+
+export const abandonOrder = (phase: ServicePhase): ServicePhase => {
+  if (phase.subPhase.tag === "taking_order") {
+    return { ...phase, subPhase: { tag: "waiting_for_customer" } };
+  }
+  if (phase.subPhase.tag === "cooking") {
+    return { ...phase, subPhase: { tag: "waiting_for_customer" } };
+  }
+  return phase;
+};
+
 export const finishServing = (phase: ServicePhase): ServicePhase => {
   if (phase.subPhase.tag !== "serving") return phase;
   return {

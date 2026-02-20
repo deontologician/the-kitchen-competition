@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { renderPixelText } from "./renderPixelText";
+import { renderPixelText, addMenuButton } from "./renderPixelText";
 import { recordSceneEntry } from "./saveHelpers";
 import { renderTimerBar, formatTimeRemaining } from "./timerBar";
 import { renderPanel } from "./panel";
@@ -17,8 +17,11 @@ import {
   advanceToService,
   advanceToDayEnd,
   finishCooking,
+  abandonOrder,
+  activeCustomerId,
   defaultDurations,
 } from "../domain/day-cycle";
+import { unseatCustomer } from "../domain/tables";
 import { availableRecipesFor } from "../domain/menu";
 import { findItem } from "../domain/items";
 import type { RecipeStep } from "../domain/recipes";
@@ -486,9 +489,42 @@ export class KitchenScene extends Phaser.Scene {
         .setDisplaySize(48, 48);
     }
 
+    // Abandon order button
+    addMenuButton(
+      this,
+      this.scale.width - 100,
+      this.scale.height - 40,
+      "Abandon Order",
+      () => this.abandonServiceCooking()
+    );
+
     // Show recipe steps for this dish (same as prep mode but filtered)
     this.renderRecipeList();
     this.renderInventory();
+  }
+
+  private abandonServiceCooking(): void {
+    const current: DayCycle | undefined = this.registry.get("dayCycle");
+    if (
+      current === undefined ||
+      current.phase.tag !== "service" ||
+      current.phase.subPhase.tag !== "cooking"
+    )
+      return;
+
+    this.cookingTimer?.destroy();
+    const custId = activeCustomerId(current.phase);
+    const abandoned = abandonOrder(current.phase);
+    const updatedLayout =
+      custId !== undefined
+        ? unseatCustomer(abandoned.tableLayout, custId)
+        : abandoned.tableLayout;
+    const updated: DayCycle = {
+      ...current,
+      phase: { ...abandoned, tableLayout: updatedLayout },
+    };
+    this.registry.set("dayCycle", updated);
+    this.scene.start("RestaurantScene");
   }
 
   private finishServiceCooking(): void {
