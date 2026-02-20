@@ -16,6 +16,7 @@ import { renderTimerBar, formatTimeRemaining } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
+  getActiveUnlockedCount,
   backgroundKey,
   backgroundAssetPath,
 } from "./restaurantTypeHelper";
@@ -27,7 +28,7 @@ import {
   advanceToKitchenPrep,
   defaultDurations,
 } from "../domain/day-cycle";
-import { groceryItemsFor } from "../domain/menu";
+import { unlockedGroceryItemsFor } from "../domain/menu";
 import { findItem, type ItemDef } from "../domain/items";
 import {
   createInventory,
@@ -62,8 +63,9 @@ export class GroceryScene extends Phaser.Scene {
       this.load.image(key, backgroundAssetPath(type, "grocery"));
     }
 
-    // Preload item sprites for this restaurant type
-    const itemIds = groceryItemsFor(type);
+    // Preload item sprites for this restaurant type's unlocked dishes
+    const unlocked = getActiveUnlockedCount(this.registry);
+    const itemIds = unlockedGroceryItemsFor(type, unlocked);
     itemIds.forEach((id) => {
       const spriteKey = `item-${id}`;
       if (!this.textures.exists(spriteKey)) {
@@ -91,9 +93,10 @@ export class GroceryScene extends Phaser.Scene {
 
     renderPixelText(this, ["GROCERY STORE"], { centerY: 110 });
 
-    // Build grocery item list
-    const itemIds = groceryItemsFor(type);
-    this.groceryItems = itemIds
+    // Build grocery item list (only ingredients for unlocked dishes)
+    const unlockedCount = getActiveUnlockedCount(this.registry);
+    const groceryIds = unlockedGroceryItemsFor(type, unlockedCount);
+    this.groceryItems = groceryIds
       .map((id) => findItem(id))
       .filter((item): item is ItemDef => item !== undefined);
 

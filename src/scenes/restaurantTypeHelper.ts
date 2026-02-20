@@ -5,6 +5,7 @@ import {
   type RestaurantType,
   findSlot,
 } from "../domain/save-slots";
+import { STARTER_DISH_COUNT } from "../domain/menu";
 
 export const getActiveRestaurantType = (
   registry: Phaser.Data.DataManager
@@ -14,6 +15,16 @@ export const getActiveRestaurantType = (
   if (store === undefined || activeSlotId === undefined) return "burger";
   const slot = findSlot(store, activeSlotId);
   return slot?.restaurantType ?? "burger";
+};
+
+export const getActiveUnlockedCount = (
+  registry: Phaser.Data.DataManager
+): number => {
+  const store: SaveStore | undefined = registry.get("saveStore");
+  const activeSlotId: SlotId | undefined = registry.get("activeSlotId");
+  if (store === undefined || activeSlotId === undefined) return STARTER_DISH_COUNT;
+  const slot = findSlot(store, activeSlotId);
+  return slot?.unlockedDishes ?? STARTER_DISH_COUNT;
 };
 
 export const backgroundKey = (

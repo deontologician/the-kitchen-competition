@@ -18,6 +18,7 @@ import {
 import { SAVE_KEY } from "../domain/save-game";
 import { createDayCycle, type DayCycle } from "../domain/day-cycle";
 import { recordDayAdvance } from "./saveHelpers";
+import { STARTER_DISH_COUNT } from "../domain/menu";
 import {
   type Leaderboard,
   createLeaderboard,
@@ -77,7 +78,8 @@ export class TitleScene extends Phaser.Scene {
           slot.day,
           value.coins,
           slot.scene,
-          Date.now()
+          Date.now(),
+          slot.unlockedDishes
         );
         this.registry.set("saveStore", updateSlot(store, updated));
       }
@@ -218,7 +220,7 @@ export class TitleScene extends Phaser.Scene {
   private startNewGame(type: RestaurantType): void {
     const id = slotId(crypto.randomUUID());
     const now = Date.now();
-    const slot = createSaveSlot(id, type, 1, 10, "GroceryScene", now);
+    const slot = createSaveSlot(id, type, 1, 10, "GroceryScene", now, STARTER_DISH_COUNT);
     const store: SaveStore =
       this.registry.get("saveStore") ?? createSaveStore();
     this.registry.set("saveStore", addSlot(store, slot));

@@ -8,6 +8,7 @@ import { renderTimerBar, formatTimeRemaining } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
+  getActiveUnlockedCount,
   backgroundKey,
   backgroundAssetPath,
   tableKey,
@@ -33,7 +34,7 @@ import {
   removeExpiredCustomers,
   defaultDurations,
 } from "../domain/day-cycle";
-import { pickRandomDish, menuFor } from "../domain/menu";
+import { pickRandomDish, unlockedMenuFor } from "../domain/menu";
 import { findItem } from "../domain/items";
 import {
   createInventory,
@@ -99,7 +100,8 @@ export class RestaurantScene extends Phaser.Scene {
     if (!this.textures.exists(tKey)) {
       this.load.image(tKey, tableAssetPath(type));
     }
-    const menu = menuFor(type);
+    const unlocked = getActiveUnlockedCount(this.registry);
+    const menu = unlockedMenuFor(type, unlocked);
     menu.items.forEach((mi) => {
       const spriteKey = `item-${mi.dishId}`;
       if (!this.textures.exists(spriteKey)) {
@@ -284,7 +286,8 @@ export class RestaurantScene extends Phaser.Scene {
     if (empty.length === 0) return;
 
     const type = getActiveRestaurantType(this.registry);
-    const menuItem = pickRandomDish(type, Math.random());
+    const unlockedCount = getActiveUnlockedCount(this.registry);
+    const menuItem = pickRandomDish(type, Math.random(), unlockedCount);
     const tableId = empty[Math.floor(Math.random() * empty.length)];
     const patienceMs =
       difficulty.customerPatienceMinMs +
@@ -658,7 +661,8 @@ export class RestaurantScene extends Phaser.Scene {
 
   private getPriceForDish(dishId: string): number {
     const type = getActiveRestaurantType(this.registry);
-    const menu = menuFor(type);
+    const unlockedCount = getActiveUnlockedCount(this.registry);
+    const menu = unlockedMenuFor(type, unlockedCount);
     const menuItem = menu.items.find((mi) => mi.dishId === dishId);
     return menuItem?.sellPrice ?? 5;
   }

@@ -110,7 +110,7 @@ export const deserializeStore = (json: string): SaveStore | undefined => {
     return {
       version: 2,
       slots: rec.slots.map((s) => {
-        const raw = s as Record<string, unknown>;
+        const raw = s as unknown as Record<string, unknown>;
         const unlocked =
           typeof raw.unlockedDishes === "number" &&
           Number.isInteger(raw.unlockedDishes) &&

@@ -6,6 +6,7 @@ import { renderTimerBar, formatTimeRemaining } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
+  getActiveUnlockedCount,
   backgroundKey,
   backgroundAssetPath,
 } from "./restaurantTypeHelper";
@@ -23,7 +24,7 @@ import {
   defaultDurations,
 } from "../domain/day-cycle";
 import { unseatCustomer } from "../domain/tables";
-import { availableRecipesFor } from "../domain/menu";
+import { unlockedRecipesFor } from "../domain/menu";
 import { findItem } from "../domain/items";
 import type { RecipeStep } from "../domain/recipes";
 import {
@@ -70,8 +71,9 @@ export class KitchenScene extends Phaser.Scene {
       this.load.image(key, backgroundAssetPath(type, "kitchen"));
     }
 
-    // Preload item sprites for recipes
-    const recipes = availableRecipesFor(type);
+    // Preload item sprites for unlocked recipes
+    const unlocked = getActiveUnlockedCount(this.registry);
+    const recipes = unlockedRecipesFor(type, unlocked);
     const itemIds = new Set<string>();
     recipes.forEach((r) => {
       itemIds.add(r.output);
@@ -195,7 +197,8 @@ export class KitchenScene extends Phaser.Scene {
     this.recipeButtons = [];
 
     const type = getActiveRestaurantType(this.registry);
-    const recipes = availableRecipesFor(type);
+    const unlockedCount = getActiveUnlockedCount(this.registry);
+    const recipes = unlockedRecipesFor(type, unlockedCount);
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
 
