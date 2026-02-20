@@ -34,7 +34,7 @@ import {
   removeExpiredCustomers,
   defaultDurations,
 } from "../domain/day-cycle";
-import { pickRandomDish, unlockedMenuFor } from "../domain/menu";
+import { pickRandomDish, unlockedMenuFor, shouldUnlockNextDish, unlockedDishIdsFor } from "../domain/menu";
 import { findItem } from "../domain/items";
 import {
   createInventory,
@@ -67,6 +67,13 @@ import {
   animateCustomerLeft,
   animateArrival,
 } from "./serviceAnimations";
+import type { SlotId } from "../domain/branded";
+import {
+  type SaveStore,
+  findSlot,
+  updateSlot,
+  createSaveSlot,
+} from "../domain/save-slots";
 
 const TABLE_SIZE = 140;
 const TABLE_POSITIONS: ReadonlyArray<{ readonly x: number; readonly y: number }> = [
@@ -571,6 +578,33 @@ export class RestaurantScene extends Phaser.Scene {
       recordDayResult(lb, { served, earnings })
     );
 
+    // Check for dish unlock
+    const type = getActiveRestaurantType(this.registry);
+    const currentUnlocked = getActiveUnlockedCount(this.registry);
+    const newUnlocked = shouldUnlockNextDish(lost, newWallet.coins, currentUnlocked);
+    const didUnlock = newUnlocked > currentUnlocked;
+
+    // Persist unlock to save slot
+    if (didUnlock) {
+      const store: SaveStore | undefined = this.registry.get("saveStore");
+      const activeSlotId: SlotId | undefined = this.registry.get("activeSlotId");
+      if (store !== undefined && activeSlotId !== undefined) {
+        const slot = findSlot(store, activeSlotId);
+        if (slot !== undefined) {
+          const updated = createSaveSlot(
+            slot.id,
+            slot.restaurantType,
+            slot.day,
+            slot.coins,
+            slot.scene,
+            Date.now(),
+            newUnlocked
+          );
+          this.registry.set("saveStore", updateSlot(store, updated));
+        }
+      }
+    }
+
     let yPos = centerY - 30;
 
     this.add
@@ -609,7 +643,35 @@ export class RestaurantScene extends Phaser.Scene {
         color: "#f5a623",
       })
       .setOrigin(0.5);
-    yPos += 40;
+    yPos += 28;
+
+    if (didUnlock) {
+      const newDishIds = unlockedDishIdsFor(type, newUnlocked);
+      const newDishId = newDishIds[newDishIds.length - 1];
+      const dishItem = findItem(newDishId);
+      const dishName = dishItem?.name ?? newDishId;
+
+      this.add
+        .text(centerX, yPos, `NEW DISH UNLOCKED: ${dishName}!`, {
+          fontFamily: "monospace",
+          fontSize: "14px",
+          color: "#00e5ff",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5);
+      yPos += 28;
+
+      // Show dish sprite if available
+      const spriteKey = `item-${newDishId}`;
+      if (this.textures.exists(spriteKey)) {
+        this.add
+          .image(centerX, yPos, spriteKey)
+          .setDisplaySize(48, 48);
+        yPos += 36;
+      }
+    }
+
+    yPos += 12;
 
     addMenuButton(this, centerX, yPos, "Next Day", () => {
       this.registry.set("wallet", newWallet);
