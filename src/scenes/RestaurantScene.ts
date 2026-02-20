@@ -184,9 +184,17 @@ export class RestaurantScene extends Phaser.Scene {
     const updated: DayCycle = { ...ticked, phase: servicePhase };
     this.registry.set("dayCycle", updated);
 
-    // Show notification when customer(s) leave
+    // Show notification and animate when customer(s) leave
     if (afterCount < beforeCount) {
       const left = beforeCount - afterCount;
+      // Find table IDs of expired customers before they were removed
+      const expiredIds = withPatience.customerQueue
+        .filter((c) => c.patienceMs <= 0)
+        .map((c) => c.id);
+      const expiredTableIds = withPatience.tableLayout.tables
+        .filter((t) => t.customerId !== undefined && expiredIds.includes(t.customerId))
+        .map((t) => t.id);
+      this.animateCustomerLeft(expiredTableIds);
       this.showNotification(
         left === 1 ? "Customer left!" : `${left} customers left!`,
         "#ff6666"
@@ -285,6 +293,19 @@ export class RestaurantScene extends Phaser.Scene {
       customer
     );
     this.registry.set("dayCycle", { ...cycle, phase: updatedPhase });
+
+    // Arrival animation: bounce the table sprite
+    if (tableId < this.tableSprites.length) {
+      const sprite = this.tableSprites[tableId];
+      this.tweens.add({
+        targets: sprite,
+        scaleX: sprite.scaleX * 1.15,
+        scaleY: sprite.scaleY * 1.15,
+        duration: 150,
+        yoyo: true,
+        ease: "Bounce.easeOut",
+      });
+    }
   }
 
   private showTakingOrder(cycle: DayCycle): void {
@@ -353,6 +374,7 @@ export class RestaurantScene extends Phaser.Scene {
             return;
 
           // Transition: taking_order → cooking → serving → finishServing
+          this.animateServe(serveCustomerId);
           const cooking = beginCooking(
             current.phase,
             crypto.randomUUID(),
@@ -499,6 +521,7 @@ export class RestaurantScene extends Phaser.Scene {
           )
             return;
 
+          this.animateServe(servingCustomerId);
           this.removeFromInventory(servingDishId);
 
           const served = finishServing(current.phase, price);
@@ -838,6 +861,58 @@ export class RestaurantScene extends Phaser.Scene {
   private clearStatus(): void {
     this.statusObjects.forEach((obj) => obj.destroy());
     this.statusObjects = [];
+  }
+
+  private animateServe(customerId: string): void {
+    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
+    if (cycle === undefined || cycle.phase.tag !== "service") return;
+    const tableId = cycle.phase.tableLayout.tables.findIndex(
+      (t) => t.customerId === customerId
+    );
+    if (tableId < 0 || tableId >= this.tableSprites.length) return;
+    const sprite = this.tableSprites[tableId];
+    const pos = TABLE_POSITIONS[tableId];
+
+    // Green coin flash
+    const flash = this.add
+      .text(pos.x, pos.y - 40, "+$", {
+        fontFamily: "monospace",
+        fontSize: "18px",
+        color: "#4caf50",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(5);
+
+    this.tweens.add({
+      targets: flash,
+      y: pos.y - 80,
+      alpha: 0,
+      duration: 600,
+      ease: "Power2",
+      onComplete: () => flash.destroy(),
+    });
+
+    // Table pop
+    this.tweens.add({
+      targets: sprite,
+      scaleX: sprite.scaleX * 1.1,
+      scaleY: sprite.scaleY * 1.1,
+      duration: 100,
+      yoyo: true,
+    });
+  }
+
+  private animateCustomerLeft(tableIds: ReadonlyArray<number>): void {
+    tableIds.forEach((tableId) => {
+      if (tableId >= this.tableSprites.length) return;
+      const sprite = this.tableSprites[tableId];
+      // Red flash effect
+      sprite.setTint(0xff0000);
+      this.time.delayedCall(300, () => {
+        sprite.setTint(0xffffff);
+      });
+    });
   }
 
   private showNotification(message: string, color: string): void {
