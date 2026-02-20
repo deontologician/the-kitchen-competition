@@ -7,10 +7,10 @@ Build a complete restaurant management game where players:
 3. **Serve** customers by taking orders, cooking dishes, and delivering them
 
 ## Current State (as of latest session)
-- **Phases 1-7 COMPLETE**: Full game loop polished with difficulty scaling, refactored
-- 396 domain tests passing across 15 test files
+- **Phases 1-8 COMPLETE**: Full game loop with progressive dish unlock system
+- 467 domain tests passing across 16 test files
 - All scenes compile and are playtested via Playwright
-- Game features: grocery shopping, kitchen prep, service with order bubbles, patience timers, day scaling, enhanced day-end summary, ingredient expiration, tutorial hints, animations, leaderboard, branded ID types
+- Game features: grocery shopping, kitchen prep, service with order bubbles, patience timers, day scaling, enhanced day-end summary, ingredient expiration, tutorial hints, animations, leaderboard, branded ID types, progressive dish unlock (start with 1 dish, unlock more by serving all customers with money remaining)
 
 ## Implementation Phases
 
@@ -83,6 +83,17 @@ Per CLAUDE.md methodology:
 - [x] Compactify domain code — covered by algebra analysis; modules are already minimal
 - [x] Strengthen types (branded IDs) — `CustomerId`, `OrderId`, `SlotId`, `ItemId` branded types (commit `1c2560e`)
 - [x] Clean up scene code patterns — RestaurantScene 963→707 lines, extracted notification/inventorySidebar/tableRenderer/serviceAnimations (commit `1fdd465`)
+
+### Phase 8: Progressive Dish Unlock System ✅ COMPLETE
+- [x] Domain: `unlockedMenuFor`, `unlockedDishIdsFor`, `unlockedGroceryItemsFor`, `unlockedRecipesFor` — restrict to first N dishes
+- [x] Domain: `shouldUnlockNextDish(lost, coins, current, max?)` — unlock trigger
+- [x] Domain: `SaveSlot.unlockedDishes` field with backward-compat deserialization
+- [x] `STARTER_DISH_COUNT = 1` — new games start with 1 dish
+- [x] All scenes use unlocked variants (grocery shows only relevant ingredients, kitchen shows reachable recipes, restaurant spawns only unlocked dishes)
+- [x] Day-end unlock check: 0 lost + coins > 0 → next dish unlocked, persisted to save slot
+- [x] "NEW DISH UNLOCKED" banner with dish name + sprite at day-end
+- [x] All `createSaveSlot` calls preserve `unlockedDishes` field
+- [x] 467 tests passing
 
 ## Technical Notes
 
