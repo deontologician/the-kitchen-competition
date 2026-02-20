@@ -36,6 +36,7 @@ export type Phase =
       readonly durationMs: number;
       readonly subPhase: ServiceSubPhase;
       readonly customersServed: number;
+      readonly earnings: number;
       readonly customerQueue: ReadonlyArray<Customer>;
       readonly tableLayout: TableLayout;
     }
@@ -70,8 +71,6 @@ export const defaultDurations: PhaseDurations = {
   kitchenPrepMs: 30_000,
   serviceMs: 120_000,
 };
-
-const COINS_PER_CUSTOMER = 5;
 
 // ---------------------------------------------------------------------------
 // Creation
@@ -145,6 +144,7 @@ export const advanceToService = (
     durationMs,
     subPhase: { tag: "waiting_for_customer" },
     customersServed: 0,
+    earnings: 0,
     customerQueue: [],
     tableLayout: createTableLayout(tables),
   },
@@ -153,12 +153,14 @@ export const advanceToService = (
 export const advanceToDayEnd = (cycle: DayCycle): DayCycle => {
   const served =
     cycle.phase.tag === "service" ? cycle.phase.customersServed : 0;
+  const earned =
+    cycle.phase.tag === "service" ? cycle.phase.earnings : 0;
   return {
     ...cycle,
     phase: {
       tag: "day_end",
       customersServed: served,
-      earnings: calculateEarnings(served),
+      earnings: earned,
     },
   };
 };
@@ -243,12 +245,16 @@ export const abandonOrder = (phase: ServicePhase): ServicePhase => {
   return phase;
 };
 
-export const finishServing = (phase: ServicePhase): ServicePhase => {
+export const finishServing = (
+  phase: ServicePhase,
+  dishEarnings: number
+): ServicePhase => {
   if (phase.subPhase.tag !== "serving") return phase;
   return {
     ...phase,
     subPhase: { tag: "waiting_for_customer" },
     customersServed: phase.customersServed + 1,
+    earnings: phase.earnings + dishEarnings,
   };
 };
 
@@ -275,5 +281,3 @@ export const activeSceneForPhase = (phase: Phase): string => {
   }
 };
 
-export const calculateEarnings = (customersServed: number): number =>
-  customersServed * COINS_PER_CUSTOMER;

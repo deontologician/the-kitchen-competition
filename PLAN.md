@@ -7,10 +7,10 @@ Build a complete restaurant management game where players:
 3. **Serve** customers by taking orders, cooking dishes, and delivering them
 
 ## Current State (as of latest session)
-- **Phases 1-3 COMPLETE**: inventory in registry, grocery purchasing UI, kitchen prep with recipe crafting
-- **Phase 4 IN PROGRESS**: Service phase with real customer orders
-- All 345 domain tests passing
+- **Phases 1-4 COMPLETE**: Full game loop working end-to-end
+- All 352 domain tests passing
 - All scenes compile and are playtested via Playwright
+- Full serve flow verified: grocery → kitchen prep → service (order → cook → serve → day end with earnings)
 
 ## Implementation Phases
 
@@ -37,22 +37,17 @@ Build a complete restaurant management game where players:
 - [x] Service-phase cooking mode shows ordered dish
 - Commits: `f33e285`
 
-### Phase 4: Service Phase - Real Customer Orders 🔄 IN PROGRESS
-**What's done:**
-- [x] `Order` type has `dishId` field (commit `88bbfdc`)
-- [x] `Customer` type has `dishId` field (just added, not yet committed)
-- [x] All existing tests updated with dishId on Customer/Order
-
-**What's left to do:**
-- [ ] RestaurantScene: spawn customers with `pickRandomDish` to get their dishId
-- [ ] RestaurantScene: show what dish each customer ordered (order bubble)
-- [ ] RestaurantScene: "Take Order" → `beginCooking` with customer's dishId
-- [ ] KitchenScene (service cooking mode): show recipe chain for the ordered dish
-  - If dish is already in inventory, auto-serve
-  - If not, show recipe steps player needs to execute
-  - Player can execute prep/cook steps during service cooking
-- [ ] RestaurantScene: "Serve" button checks inventory for the dish, removes it
-- [ ] Earnings: sell price from menu (not flat $5)
+### Phase 4: Service Phase - Real Customer Orders ✅ COMPLETE
+- [x] `Order` and `Customer` types have `dishId` field (commit `88bbfdc`)
+- [x] RestaurantScene: spawn customers with `pickRandomDish` to get their dishId
+- [x] RestaurantScene: show what dish each customer ordered (order bubble)
+- [x] RestaurantScene: "Take Order" → `beginCooking` with customer's dishId
+- [x] KitchenScene: auto-detects dish in inventory → auto-serve; else show recipe steps
+- [x] RestaurantScene: "Serve" button removes dish from inventory
+- [x] Abandon order mechanic: "Skip" in restaurant, "Abandon Order" in kitchen (commit `2394ec8`)
+- [x] Assembly recipes available during kitchen prep (commit `e760347`)
+- [ ] Earnings: sell price from menu (not flat $5) — **NEXT**
+- Commits: `295613f`, `0bd3db4`, `2394ec8`, `e760347`
 
 ### Phase 5: Polish & Game Feel
 - [ ] Ingredient expiration warnings

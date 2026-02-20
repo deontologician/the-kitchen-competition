@@ -393,7 +393,7 @@ export class RestaurantScene extends Phaser.Scene {
             this.registry.set("inventory", afterRemove);
           }
 
-          const served = finishServing(current.phase);
+          const served = finishServing(current.phase, price);
           const updatedLayout = unseatCustomer(served.tableLayout, servingCustomerId);
           const withServed: DayCycle = {
             ...current,

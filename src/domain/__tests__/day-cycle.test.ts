@@ -17,7 +17,6 @@ import {
   abandonOrder,
   activeCustomerId,
   activeSceneForPhase,
-  calculateEarnings,
   defaultDurations,
   type DayCycle,
   type Phase,
@@ -182,6 +181,7 @@ describe("advanceToService", () => {
     expect(service.phase.subPhase.tag).toBe("waiting_for_customer");
     expect(service.phase.customersServed).toBe(0);
     expect(service.phase.customerQueue).toEqual([]);
+    expect(service.phase.earnings).toBe(0);
   });
 
   it("preserves day number", () => {
@@ -221,36 +221,36 @@ describe("advanceToDayEnd", () => {
     }
   });
 
-  it("carries over customersServed and calculates earnings", () => {
+  it("carries over customersServed and accumulated earnings from dish prices", () => {
     const cycle = createDayCycle(1);
     const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
     const service = advanceToService(prepped, defaultDurations.serviceMs);
 
-    // Simulate serving 3 customers
+    // Simulate serving 3 customers with different sell prices
     if (service.phase.tag !== "service") throw new Error("expected service");
     const customer1: Customer = { id: "c1", dishId: "classic-burger" };
-    const customer2: Customer = { id: "c2", dishId: "cheeseburger" };
-    const customer3: Customer = { id: "c3", dishId: "loaded-fries" };
+    const customer2: Customer = { id: "c2", dishId: "bacon-cheeseburger" };
+    const customer3: Customer = { id: "c3", dishId: "miso-soup" };
 
     let phase = enqueueCustomer(service.phase, customer1);
     phase = enqueueCustomer(phase, customer2);
     phase = enqueueCustomer(phase, customer3);
 
-    // Serve all 3 customers through the full cycle
+    // Serve all 3 customers with their respective sell prices
     const served1Taking = beginTakingOrder(phase)!;
     const served1Cooking = beginCooking(served1Taking, "o1", "classic-burger");
     const served1Cooked = finishCooking(served1Cooking);
-    const served1Done = finishServing(served1Cooked);
+    const served1Done = finishServing(served1Cooked, 5); // classic-burger: $5
 
     const served2Taking = beginTakingOrder(served1Done)!;
-    const served2Cooking = beginCooking(served2Taking, "o2", "cheeseburger");
+    const served2Cooking = beginCooking(served2Taking, "o2", "bacon-cheeseburger");
     const served2Cooked = finishCooking(served2Cooking);
-    const served2Done = finishServing(served2Cooked);
+    const served2Done = finishServing(served2Cooked, 7); // bacon-cheeseburger: $7
 
     const served3Taking = beginTakingOrder(served2Done)!;
-    const served3Cooking = beginCooking(served3Taking, "o3", "loaded-fries");
+    const served3Cooking = beginCooking(served3Taking, "o3", "miso-soup");
     const served3Cooked = finishCooking(served3Cooking);
-    const served3Done = finishServing(served3Cooked);
+    const served3Done = finishServing(served3Cooked, 2); // miso-soup: $2
 
     const withServed: DayCycle = { ...service, phase: served3Done };
     const ended = advanceToDayEnd(withServed);
@@ -258,7 +258,7 @@ describe("advanceToDayEnd", () => {
     expect(ended.phase.tag).toBe("day_end");
     if (ended.phase.tag === "day_end") {
       expect(ended.phase.customersServed).toBe(3);
-      expect(ended.phase.earnings).toBe(15); // 5 coins per customer
+      expect(ended.phase.earnings).toBe(14); // 5 + 7 + 2 = $14
     }
   });
 
@@ -521,13 +521,14 @@ describe("finishServing", () => {
     const taking = beginTakingOrder(queued)!;
     const cooking = beginCooking(taking, "order-1", "classic-burger");
     const cooked = finishCooking(cooking);
-    const done = finishServing(cooked);
+    const done = finishServing(cooked, 5);
 
     expect(done.subPhase.tag).toBe("waiting_for_customer");
     expect(done.customersServed).toBe(1);
+    expect(done.earnings).toBe(5);
   });
 
-  it("accumulates customersServed across multiple cycles", () => {
+  it("accumulates customersServed and earnings across multiple cycles", () => {
     const cycle = createDayCycle(1);
     const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
     const service = advanceToService(prepped, defaultDurations.serviceMs);
@@ -537,18 +538,46 @@ describe("finishServing", () => {
     const c2: Customer = { id: "c2", dishId: "cheeseburger" };
     let phase = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
 
-    // Serve first customer
+    // Serve first customer (classic-burger @ $5)
     const t1 = beginTakingOrder(phase)!;
     const cook1 = beginCooking(t1, "o1", "classic-burger");
     const cooked1 = finishCooking(cook1);
-    phase = finishServing(cooked1);
+    phase = finishServing(cooked1, 5);
     expect(phase.customersServed).toBe(1);
+    expect(phase.earnings).toBe(5);
 
-    // Serve second customer
+    // Serve second customer (cheeseburger @ $5)
     const t2 = beginTakingOrder(phase)!;
     const cook2 = beginCooking(t2, "o2", "cheeseburger");
     const cooked2 = finishCooking(cook2);
-    phase = finishServing(cooked2);
+    phase = finishServing(cooked2, 5);
+    expect(phase.customersServed).toBe(2);
+    expect(phase.earnings).toBe(10);
+  });
+
+  it("accumulates different sell prices per dish", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+
+    const c1: Customer = { id: "c1", dishId: "miso-soup" };
+    const c2: Customer = { id: "c2", dishId: "california-roll" };
+    let phase = enqueueCustomer(enqueueCustomer(service.phase, c1), c2);
+
+    // Serve miso soup @ $2
+    const t1 = beginTakingOrder(phase)!;
+    const cook1 = beginCooking(t1, "o1", "miso-soup");
+    const cooked1 = finishCooking(cook1);
+    phase = finishServing(cooked1, 2);
+    expect(phase.earnings).toBe(2);
+
+    // Serve california roll @ $7
+    const t2 = beginTakingOrder(phase)!;
+    const cook2 = beginCooking(t2, "o2", "california-roll");
+    const cooked2 = finishCooking(cook2);
+    phase = finishServing(cooked2, 7);
+    expect(phase.earnings).toBe(9);
     expect(phase.customersServed).toBe(2);
   });
 });
@@ -627,12 +656,23 @@ describe("activeSceneForPhase", () => {
   });
 });
 
-describe("calculateEarnings", () => {
-  it("returns 5 coins per customer", () => {
-    expect(calculateEarnings(0)).toBe(0);
-    expect(calculateEarnings(1)).toBe(5);
-    expect(calculateEarnings(3)).toBe(15);
-    expect(calculateEarnings(10)).toBe(50);
+describe("earnings accumulation", () => {
+  it("service phase starts with zero earnings", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    if (service.phase.tag !== "service") throw new Error("expected service");
+    expect(service.phase.earnings).toBe(0);
+  });
+
+  it("day_end with no customers served has zero earnings", () => {
+    const cycle = createDayCycle(1);
+    const prepped = advanceToKitchenPrep(cycle, defaultDurations.kitchenPrepMs);
+    const service = advanceToService(prepped, defaultDurations.serviceMs);
+    const ended = advanceToDayEnd(service);
+    if (ended.phase.tag !== "day_end") throw new Error("expected day_end");
+    expect(ended.phase.earnings).toBe(0);
+    expect(ended.phase.customersServed).toBe(0);
   });
 });
 
@@ -676,21 +716,38 @@ describe("property-based tests", () => {
     );
   });
 
-  it("calculateEarnings: is always non-negative", () => {
+  it("finishServing: earnings accumulate monotonically", () => {
     fc.assert(
-      fc.property(fc.nat(), (served) => {
-        expect(calculateEarnings(served)).toBeGreaterThanOrEqual(0);
-      })
-    );
-  });
+      fc.property(
+        fc.nat({ max: 100 }),
+        fc.nat({ max: 100 }),
+        (price1, price2) => {
+          const cycle = createDayCycle(1);
+          const prepped = advanceToKitchenPrep(cycle, 10_000);
+          const service = advanceToService(prepped, 60_000);
+          if (service.phase.tag !== "service")
+            throw new Error("expected service");
 
-  it("calculateEarnings: is monotonically increasing", () => {
-    fc.assert(
-      fc.property(fc.nat(), (served) => {
-        expect(calculateEarnings(served + 1)).toBeGreaterThanOrEqual(
-          calculateEarnings(served)
-        );
-      })
+          const c1: Customer = { id: "c1", dishId: "dish-a" };
+          const c2: Customer = { id: "c2", dishId: "dish-b" };
+          let phase = enqueueCustomer(
+            enqueueCustomer(service.phase, c1),
+            c2
+          );
+
+          const t1 = beginTakingOrder(phase)!;
+          const cook1 = beginCooking(t1, "o1", "dish-a");
+          const cooked1 = finishCooking(cook1);
+          phase = finishServing(cooked1, price1);
+          expect(phase.earnings).toBe(price1);
+
+          const t2 = beginTakingOrder(phase)!;
+          const cook2 = beginCooking(t2, "o2", "dish-b");
+          const cooked2 = finishCooking(cook2);
+          phase = finishServing(cooked2, price2);
+          expect(phase.earnings).toBe(price1 + price2);
+        }
+      )
     );
   });
 });
