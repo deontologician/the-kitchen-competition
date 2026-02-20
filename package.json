@@ -12,7 +12,8 @@
     "coverage": "vitest run --coverage",
     "img:generate": "node tools/gemini-image.mjs generate",
     "img:edit": "node tools/gemini-image.mjs edit",
-    "img:animate": "node tools/gemini-image.mjs animate"
+    "img:animate": "node tools/gemini-image.mjs animate",
+    "deploy": "npm run build && gh-pages -d dist"
   },
   "dependencies": {
     "phaser": "^3.87.0"
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^3.0.0",
     "fast-check": "^4.0.0",
+    "gh-pages": "^6.3.0",
     "typescript": "^5.9.3",
     "vite": "^6.1.0",
     "vitest": "^3.0.0"
