@@ -11,6 +11,7 @@ import {
   unlockedDishIdsFor,
   unlockedGroceryItemsFor,
   unlockedRecipesFor,
+  shouldUnlockNextDish,
 } from "../menu";
 import type { RestaurantType } from "../save-slots";
 import { findItem } from "../items";
@@ -542,5 +543,64 @@ describe("unlockedRecipesFor", () => {
         new Set(full.map((r) => r.id))
       );
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldUnlockNextDish
+// ---------------------------------------------------------------------------
+describe("shouldUnlockNextDish", () => {
+  it("unlocks next dish when 0 lost and coins > 0 and room to unlock", () => {
+    expect(shouldUnlockNextDish(0, 10, 1)).toBe(2);
+  });
+
+  it("does not unlock when customers were lost", () => {
+    expect(shouldUnlockNextDish(1, 10, 1)).toBe(1);
+  });
+
+  it("does not unlock when coins are 0", () => {
+    expect(shouldUnlockNextDish(0, 0, 2)).toBe(2);
+  });
+
+  it("does not unlock when already at max (5)", () => {
+    expect(shouldUnlockNextDish(0, 10, 5)).toBe(5);
+  });
+
+  it("does not unlock when already at custom max", () => {
+    expect(shouldUnlockNextDish(0, 10, 3, 3)).toBe(3);
+  });
+
+  it("respects custom maxDishes", () => {
+    expect(shouldUnlockNextDish(0, 10, 2, 4)).toBe(3);
+  });
+
+  it("property: result >= currentUnlocked and <= max(currentUnlocked, maxDishes)", () => {
+    fc.assert(
+      fc.property(
+        fc.nat(50),
+        fc.nat(100),
+        fc.integer({ min: 1, max: 5 }),
+        fc.integer({ min: 1, max: 10 }),
+        (lost, coins, current, max) => {
+          const result = shouldUnlockNextDish(lost, coins, current, max);
+          expect(result).toBeGreaterThanOrEqual(current);
+          expect(result).toBeLessThanOrEqual(Math.max(current, max));
+        }
+      )
+    );
+  });
+
+  it("property: at most +1 increase", () => {
+    fc.assert(
+      fc.property(
+        fc.nat(50),
+        fc.nat(100),
+        fc.integer({ min: 1, max: 5 }),
+        (lost, coins, current) => {
+          const result = shouldUnlockNextDish(lost, coins, current);
+          expect(result - current).toBeLessThanOrEqual(1);
+        }
+      )
+    );
   });
 });

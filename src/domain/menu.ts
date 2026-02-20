@@ -172,6 +172,16 @@ export const unlockedRecipesFor = (
   return result;
 };
 
+export const shouldUnlockNextDish = (
+  customersLost: number,
+  coins: number,
+  currentUnlocked: number,
+  maxDishes: number = 5
+): number =>
+  customersLost === 0 && coins > 0 && currentUnlocked < maxDishes
+    ? currentUnlocked + 1
+    : currentUnlocked;
+
 export const pickRandomDish = (
   type: RestaurantType,
   randomValue: number,
