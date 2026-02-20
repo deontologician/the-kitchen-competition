@@ -24,8 +24,8 @@ describe("createWallet", () => {
 });
 
 describe("initialWallet", () => {
-  it("starts with 10 coins", () => {
-    expect(initialWallet.coins).toBe(10);
+  it("starts with 20 coins", () => {
+    expect(initialWallet.coins).toBe(20);
   });
 });
 

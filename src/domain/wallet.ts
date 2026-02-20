@@ -6,7 +6,7 @@ export const createWallet = (coins: number): Wallet => ({
   coins: Number.isFinite(coins) ? Math.max(0, Math.floor(coins)) : 0,
 });
 
-export const initialWallet: Wallet = createWallet(10);
+export const initialWallet: Wallet = createWallet(20);
 
 export const addCoins = (wallet: Wallet, amount: number): Wallet =>
   createWallet(wallet.coins + amount);

@@ -218,28 +218,53 @@ describe("pickRandomDish", () => {
 // Sell price spot-checks
 // ---------------------------------------------------------------------------
 describe("sell prices", () => {
-  it("burger classic burger sells for 5", () => {
+  it("burger classic burger sells for 8", () => {
     const menu = menuFor("burger");
     const item = menu.items.find((m) => m.dishId === "classic-burger");
-    expect(item!.sellPrice).toBe(5);
+    expect(item!.sellPrice).toBe(8);
   });
 
-  it("sushi california roll sells for 7", () => {
+  it("sushi california roll sells for 12", () => {
     const menu = menuFor("sushi");
     const item = menu.items.find((m) => m.dishId === "california-roll");
+    expect(item!.sellPrice).toBe(12);
+  });
+
+  it("bbq smoked chicken plate sells for 7", () => {
+    const menu = menuFor("bbq");
+    const item = menu.items.find((m) => m.dishId === "smoked-chicken-plate");
     expect(item!.sellPrice).toBe(7);
   });
 
-  it("bbq smoked chicken plate sells for 4", () => {
-    const menu = menuFor("bbq");
-    const item = menu.items.find((m) => m.dishId === "smoked-chicken-plate");
-    expect(item!.sellPrice).toBe(4);
-  });
-
-  it("sushi miso soup sells for 2", () => {
+  it("sushi miso soup sells for 5", () => {
     const menu = menuFor("sushi");
     const item = menu.items.find((m) => m.dishId === "miso-soup");
-    expect(item!.sellPrice).toBe(2);
+    expect(item!.sellPrice).toBe(5);
+  });
+
+  it("all dishes are profitable (sell price > ingredient cost)", () => {
+    TYPES.forEach((type) => {
+      menuFor(type).items.forEach((mi) => {
+        const chain = resolveRecipeChain(mi.dishId);
+        if (chain === undefined) return;
+        // Collect all raw ingredient costs
+        let totalCost = 0;
+        const countRaws = (node: { step: { inputs: ReadonlyArray<{ itemId: string; quantity: number }> }; children: ReadonlyArray<typeof node> }): void => {
+          node.step.inputs.forEach((input) => {
+            const item = findItem(input.itemId);
+            if (item !== undefined && item.category === "raw" && item.cost !== undefined) {
+              totalCost += item.cost * input.quantity;
+            }
+          });
+          node.children.forEach(countRaws);
+        };
+        countRaws(chain);
+        expect(
+          mi.sellPrice,
+          `${mi.dishId} sells for $${mi.sellPrice} but costs $${totalCost} in ingredients`
+        ).toBeGreaterThan(totalCost);
+      });
+    });
   });
 });
 

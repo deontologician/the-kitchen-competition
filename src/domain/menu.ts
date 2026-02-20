@@ -25,33 +25,33 @@ const mi = (dishId: string, sellPrice: number): MenuItem => ({
 const BURGER_MENU: MenuDef = {
   restaurantType: "burger",
   items: [
-    mi("classic-burger", 5),
-    mi("cheeseburger", 5),
-    mi("bacon-cheeseburger", 7),
-    mi("chicken-sandwich", 5),
-    mi("loaded-fries", 5),
+    mi("classic-burger", 8),
+    mi("cheeseburger", 8),
+    mi("bacon-cheeseburger", 12),
+    mi("chicken-sandwich", 8),
+    mi("loaded-fries", 8),
   ],
 };
 
 const BBQ_MENU: MenuDef = {
   restaurantType: "bbq",
   items: [
-    mi("pulled-pork-sandwich", 5),
-    mi("smoked-ribs-plate", 5),
-    mi("brisket-sandwich", 5),
-    mi("bbq-burger", 5),
-    mi("smoked-chicken-plate", 4),
+    mi("pulled-pork-sandwich", 9),
+    mi("smoked-ribs-plate", 9),
+    mi("brisket-sandwich", 9),
+    mi("bbq-burger", 8),
+    mi("smoked-chicken-plate", 7),
   ],
 };
 
 const SUSHI_MENU: MenuDef = {
   restaurantType: "sushi",
   items: [
-    mi("salmon-nigiri", 5),
-    mi("tuna-roll", 6),
-    mi("california-roll", 7),
-    mi("tempura-shrimp-roll", 6),
-    mi("miso-soup", 2),
+    mi("salmon-nigiri", 8),
+    mi("tuna-roll", 10),
+    mi("california-roll", 12),
+    mi("tempura-shrimp-roll", 10),
+    mi("miso-soup", 5),
   ],
 };
 
