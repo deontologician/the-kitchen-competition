@@ -18,6 +18,7 @@ This separation is non-negotiable. Domain code must be testable without any game
 3. Every domain function must have corresponding tests.
 4. **Commit on green.** After each meaningful green step (tests pass + TS compiles), make a git commit with a descriptive message explaining the *why* of the change.
 5. **After every plan implementation, update this CLAUDE.md** to reflect new/changed modules, scenes, registry keys, and architecture decisions so the documentation stays current.
+6. **Commit at the end of every plan implementation.** Once CLAUDE.md is updated and all tests pass, make a final git commit covering any remaining changes. Every plan should end with a clean working tree (relative to plan-related files).
 
 ## Coding Conventions
 
