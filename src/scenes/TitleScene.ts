@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { addMenuButton } from "./renderPixelText";
-import { type Wallet, createWallet } from "../domain/wallet";
+import { type Wallet, createWallet, initialWallet } from "../domain/wallet";
 import { createInventory } from "../domain/inventory";
 import {
   type SaveStore,
@@ -181,7 +181,7 @@ export class TitleScene extends Phaser.Scene {
       this.registry.get("saveStore") ?? createSaveStore();
     this.registry.set("saveStore", addSlot(store, slot));
     this.registry.set("activeSlotId", id);
-    this.registry.set("wallet", createWallet(10));
+    this.registry.set("wallet", initialWallet);
     this.registry.set("dayCycle", createDayCycle(1));
     this.registry.set("inventory", createInventory());
     this.scene.start("GroceryScene");
