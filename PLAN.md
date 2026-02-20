@@ -61,12 +61,21 @@ Build a complete restaurant management game where players:
 - [x] Customers lost tracking in domain + enhanced day-end summary (commit `05e1268`)
 - [x] Refactored RestaurantScene helpers (commit `6cbdb3d`)
 
-### Phase 6: Remaining Polish & Content
-- [ ] Ingredient expiration during service (visual warnings)
-- [ ] Tutorial / first-day guidance
-- [ ] Sound effects
-- [ ] More visual feedback (serve animations, customer arrive/leave)
-- [ ] High score / leaderboard tracking across games
+### Phase 6: Polish & Content ✅ MOSTLY COMPLETE
+- [x] Ingredient expiration during service with visual warnings (commit `9ef2b9c`)
+  - Items with shelfLifeMs expire in real-time during service/kitchen phases
+  - Inventory sidebar color-codes items by freshness (white → yellow → red)
+  - Notifications when items expire; domain `itemFreshness` function added
+- [x] Tutorial / first-day guidance (commit `787fb85`)
+  - Contextual TIP banners at bottom of each scene on Day 1 only
+  - Auto-fades after 10 seconds
+- [x] Customer arrival/serve/departure animations (commit `4aeb1ca`)
+  - Table bounce on customer arrival, "+$" float + pop on serve
+  - Red flash on tables when patience-expired customers leave
+- [x] High score / leaderboard tracking (commit `cd603fd`)
+  - Tracks best day served/earnings, total customers, total days played
+  - Persisted to localStorage, shown on title screen
+- [ ] Sound effects (deferred — requires audio assets)
 
 ### Phase 7: Post-Feature Refactoring
 Per CLAUDE.md methodology:
