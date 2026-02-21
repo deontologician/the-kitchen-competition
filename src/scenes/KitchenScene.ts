@@ -65,6 +65,12 @@ export class KitchenScene extends Phaser.Scene {
   private activeRowFill?: Phaser.GameObjects.Rectangle;
   private activeRowTimeText?: Phaser.GameObjects.Text;
   private recipeStartTime = 0;
+  private scrollOffset: number = 0;
+  private scrollContainer: Phaser.GameObjects.Container | null = null;
+  private maskGraphics: Phaser.GameObjects.Graphics | null = null;
+  private totalRecipeHeight: number = 0;
+  private scrollArrowUp: Phaser.GameObjects.Text | null = null;
+  private scrollArrowDown: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super("KitchenScene");
@@ -149,6 +155,30 @@ export class KitchenScene extends Phaser.Scene {
       this.scene.pause();
       this.scene.launch("PauseScene", { callerScene: "KitchenScene" });
     });
+
+    this.input.on(
+      "wheel",
+      (pointer: Phaser.Input.Pointer, _gameObjects: unknown, _dx: number, dy: number) => {
+        const r = recipeRegion;
+        if (
+          pointer.x >= r.x &&
+          pointer.x <= r.x + r.width &&
+          pointer.y >= r.y &&
+          pointer.y <= r.y + r.height
+        ) {
+          this.scrollOffset = Phaser.Math.Clamp(
+            this.scrollOffset + dy * 0.5,
+            0,
+            this.maxScrollOffset
+          );
+          this.scrollContainer?.setY(-this.scrollOffset);
+          this.updateScrollArrows();
+        }
+      }
+    );
+    this.events.once("shutdown", () => {
+      this.input.off("wheel");
+    });
   }
 
   update(_time: number, delta: number): void {
@@ -213,8 +243,21 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   private renderRecipeList(): void {
-    this.recipeButtons.forEach((c) => c.destroy());
+    // Clean up previous scroll infrastructure
+    if (this.scrollContainer) {
+      this.scrollContainer.destroy(true);
+      this.scrollContainer = null;
+    }
+    if (this.maskGraphics) {
+      this.maskGraphics.destroy();
+      this.maskGraphics = null;
+    }
+    this.scrollArrowUp?.destroy();
+    this.scrollArrowUp = null;
+    this.scrollArrowDown?.destroy();
+    this.scrollArrowDown = null;
     this.recipeButtons = [];
+    this.scrollOffset = 0;
 
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
@@ -230,23 +273,24 @@ export class KitchenScene extends Phaser.Scene {
     const vm = kitchenVM(inv, type, unlockedCount, activeRecipeState, Date.now(), disabledDishes);
     const isBusy = this.activeRecipe !== undefined;
 
-    // Sort: craftable first, limit to 7
+    // Sort: craftable first — no cap on visible count
     const sortedRecipes = [...vm.recipes].sort((a, b) => {
       const aCanMake = a.canMake ? 0 : 1;
       const bCanMake = b.canMake ? 0 : 1;
       return aCanMake - bCanMake;
     });
-    const maxVisible = 7;
-    const visibleRecipes = sortedRecipes.slice(0, maxVisible);
 
     // Reset inline progress references (containers are destroyed above)
     this.activeRowFill = undefined;
     this.activeRowTimeText = undefined;
 
-    const positions = recipeStack(visibleRecipes.length);
+    this.totalRecipeHeight = sortedRecipes.length * RECIPE_ROW_H;
+    this.scrollContainer = this.add.container(0, 0);
+
+    const positions = recipeStack(sortedRecipes.length);
     const rowWidth = recipeRegion.width;
 
-    visibleRecipes.forEach((recipe, i) => {
+    sortedRecipes.forEach((recipe, i) => {
       const pos = positions[i];
       const container = this.add.container(pos.x, pos.y);
       const isActiveRow = recipe.stepId === this.activeRecipe?.id;
@@ -353,8 +397,75 @@ export class KitchenScene extends Phaser.Scene {
         });
       }
 
-      this.recipeButtons.push(container);
+      this.scrollContainer!.add(container);
     });
+
+    // Apply geometry mask to clip content to recipe region
+    this.maskGraphics = this.add.graphics();
+    this.maskGraphics.fillStyle(0xffffff);
+    this.maskGraphics.fillRect(
+      recipeRegion.x,
+      recipeRegion.y,
+      recipeRegion.width,
+      recipeRegion.height
+    );
+    const mask = this.maskGraphics.createGeometryMask();
+    this.scrollContainer.setMask(mask);
+
+    // Add scroll arrows when content overflows the panel
+    if (this.totalRecipeHeight > recipeRegion.height) {
+      this.scrollArrowUp = this.add
+        .text(recipeRegion.x + recipeRegion.width - 4, recipeRegion.y + 4, "▲", {
+          fontFamily: "monospace",
+          fontSize: "14px",
+          color: "#aaaacc",
+        })
+        .setOrigin(1, 0)
+        .setInteractive({ useHandCursor: true });
+      this.scrollArrowUp.on("pointerdown", () => {
+        this.scrollOffset = Phaser.Math.Clamp(
+          this.scrollOffset - RECIPE_ROW_H,
+          0,
+          this.maxScrollOffset
+        );
+        this.scrollContainer?.setY(-this.scrollOffset);
+        this.updateScrollArrows();
+      });
+
+      this.scrollArrowDown = this.add
+        .text(
+          recipeRegion.x + recipeRegion.width - 4,
+          recipeRegion.y + recipeRegion.height - 4,
+          "▼",
+          {
+            fontFamily: "monospace",
+            fontSize: "14px",
+            color: "#aaaacc",
+          }
+        )
+        .setOrigin(1, 1)
+        .setInteractive({ useHandCursor: true });
+      this.scrollArrowDown.on("pointerdown", () => {
+        this.scrollOffset = Phaser.Math.Clamp(
+          this.scrollOffset + RECIPE_ROW_H,
+          0,
+          this.maxScrollOffset
+        );
+        this.scrollContainer?.setY(-this.scrollOffset);
+        this.updateScrollArrows();
+      });
+
+      this.updateScrollArrows();
+    }
+  }
+
+  private get maxScrollOffset(): number {
+    return Math.max(0, this.totalRecipeHeight - recipeRegion.height);
+  }
+
+  private updateScrollArrows(): void {
+    this.scrollArrowUp?.setVisible(this.scrollOffset > 0);
+    this.scrollArrowDown?.setVisible(this.scrollOffset < this.maxScrollOffset);
   }
 
   private startRecipeByStepId(stepId: string): void {
