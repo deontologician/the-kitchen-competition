@@ -80,7 +80,8 @@ export class TitleScene extends Phaser.Scene {
           value.coins,
           slot.scene,
           Date.now(),
-          slot.unlockedDishes
+          slot.unlockedDishes,
+          slot.disabledDishes
         );
         this.registry.set("saveStore", updateSlot(store, updated));
       }

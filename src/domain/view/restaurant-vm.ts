@@ -1,6 +1,5 @@
-import type { CustomerId, ItemId } from "../branded";
-import type { ServicePhase } from "../day-cycle";
-import { activeCustomerId } from "../day-cycle";
+import type { CustomerId, ItemId, OrderId } from "../branded";
+import type { ServicePhase, TableState } from "../day-cycle";
 import { findItem } from "../items";
 import { countItem, type Inventory } from "../inventory";
 import { unlockedMenuFor } from "../menu";
@@ -8,6 +7,9 @@ import type { RestaurantType } from "../restaurant-type";
 import { patienceLevel } from "./format";
 
 export type TableTint = "neutral" | "ok" | "warning" | "critical" | "active";
+
+/** Per-table action the player can take. */
+export type TableAction = "take_order" | "send_to_kitchen" | "serve";
 
 export interface TableVM {
   readonly tableId: number;
@@ -17,31 +19,15 @@ export interface TableVM {
   readonly patienceFraction: number;
   readonly tint: TableTint;
   readonly showPatienceBar: boolean;
+  readonly action: TableAction | undefined;
+  readonly tableState: TableState;
 }
-
-export type ActionPrompt =
-  | { readonly tag: "waiting"; readonly message: string }
-  | {
-      readonly tag: "taking_order";
-      readonly dishId: ItemId;
-      readonly dishName: string;
-      readonly dishSpriteKey: string;
-      readonly sellPrice: number;
-      readonly hasDish: boolean;
-    }
-  | { readonly tag: "cooking" }
-  | {
-      readonly tag: "serving";
-      readonly dishId: ItemId;
-      readonly dishName: string;
-      readonly dishSpriteKey: string;
-      readonly sellPrice: number;
-      readonly hasDish: boolean;
-    };
 
 export interface RestaurantVM {
   readonly tables: ReadonlyArray<TableVM>;
-  readonly actionPrompt: ActionPrompt;
+  /** Count of orders ready for pickup in kitchen.orderUp. */
+  readonly kitchenBadge: number;
+  readonly playerLocation: "floor" | "kitchen";
 }
 
 const tintForPatience = (fraction: number): TableTint => {
@@ -66,121 +52,207 @@ const getPriceForDish = (
   return menuItem?.sellPrice ?? 5;
 };
 
+const actionForTableState = (
+  state: TableState,
+  inventory: Inventory
+): TableAction | undefined => {
+  switch (state.tag) {
+    case "empty":
+    case "in_kitchen":
+    case "ready_to_serve":
+      // ready_to_serve action: show "serve" only if dish in inventory
+      if (state.tag === "ready_to_serve") return "serve";
+      return undefined;
+    case "customer_waiting":
+      return "take_order";
+    case "order_pending": {
+      // Can send to kitchen (dish may or may not be available)
+      return "send_to_kitchen";
+    }
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
+};
+
+const tableVMFromState = (
+  tableId: number,
+  state: TableState,
+  inventory: Inventory,
+  restaurantType: RestaurantType,
+  unlockedCount: number
+): TableVM => {
+  switch (state.tag) {
+    case "empty":
+      return {
+        tableId,
+        occupied: false,
+        customerId: undefined,
+        dishSpriteKey: undefined,
+        patienceFraction: 1,
+        tint: "neutral",
+        showPatienceBar: false,
+        action: undefined,
+        tableState: state,
+      };
+    case "customer_waiting": {
+      const { customer } = state;
+      const fraction =
+        customer.maxPatienceMs > 0
+          ? customer.patienceMs / customer.maxPatienceMs
+          : 1;
+      return {
+        tableId,
+        occupied: true,
+        customerId: customer.id as CustomerId,
+        dishSpriteKey: `item-${customer.dishId}`,
+        patienceFraction: fraction,
+        tint: tintForPatience(fraction),
+        showPatienceBar: true,
+        action: "take_order",
+        tableState: state,
+      };
+    }
+    case "order_pending": {
+      const { customer } = state;
+      const fraction =
+        customer.maxPatienceMs > 0
+          ? customer.patienceMs / customer.maxPatienceMs
+          : 1;
+      return {
+        tableId,
+        occupied: true,
+        customerId: customer.id as CustomerId,
+        dishSpriteKey: `item-${customer.dishId}`,
+        patienceFraction: fraction,
+        tint: tintForPatience(fraction),
+        showPatienceBar: true,
+        action: "send_to_kitchen",
+        tableState: state,
+      };
+    }
+    case "in_kitchen": {
+      const { customer } = state;
+      const fraction =
+        customer.maxPatienceMs > 0
+          ? customer.patienceMs / customer.maxPatienceMs
+          : 1;
+      return {
+        tableId,
+        occupied: true,
+        customerId: customer.id as CustomerId,
+        dishSpriteKey: `item-${customer.dishId}`,
+        patienceFraction: fraction,
+        tint: tintForPatience(fraction),
+        showPatienceBar: true,
+        action: undefined,
+        tableState: state,
+      };
+    }
+    case "ready_to_serve": {
+      const { customer } = state;
+      const fraction =
+        customer.maxPatienceMs > 0
+          ? customer.patienceMs / customer.maxPatienceMs
+          : 1;
+      const hasDish = countItem(inventory, customer.dishId) > 0;
+      return {
+        tableId,
+        occupied: true,
+        customerId: customer.id as CustomerId,
+        dishSpriteKey: `item-${customer.dishId}`,
+        patienceFraction: fraction,
+        tint: "active",
+        showPatienceBar: false,
+        action: "serve",
+        tableState: state,
+      };
+    }
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
+};
+
 export const restaurantVM = (
   phase: ServicePhase,
   inventory: Inventory,
   restaurantType: RestaurantType,
   unlockedCount: number
 ): RestaurantVM => {
-  const activeId = activeCustomerId(phase);
-
-  // Build customer lookup
-  const customerMap = new Map<
-    string,
-    { patienceMs: number; maxPatienceMs: number; dishId: string }
-  >();
-  phase.customerQueue.forEach((c) => {
-    customerMap.set(c.id, {
-      patienceMs: c.patienceMs,
-      maxPatienceMs: c.maxPatienceMs,
-      dishId: c.dishId,
-    });
-  });
-
-  // Get active dish id based on sub-phase
-  let activeDishId: string | undefined;
-  if (phase.subPhase.tag === "taking_order") {
-    activeDishId = phase.subPhase.customer.dishId;
-  } else if (
-    phase.subPhase.tag === "cooking" ||
-    phase.subPhase.tag === "serving"
-  ) {
-    activeDishId = phase.subPhase.order.dishId;
-  }
-
-  const tables: ReadonlyArray<TableVM> = phase.tableLayout.tables.map(
-    (table) => {
-      if (table.customerId === undefined) {
-        return {
-          tableId: table.id,
-          occupied: false,
-          customerId: undefined,
-          dishSpriteKey: undefined,
-          patienceFraction: 1,
-          tint: "neutral" as const,
-          showPatienceBar: false,
-        };
-      }
-
-      const isActive = table.customerId === activeId;
-      const customer = customerMap.get(table.customerId);
-      const dishId = isActive ? activeDishId : customer?.dishId;
-      const patienceFraction =
-        customer !== undefined && customer.maxPatienceMs > 0
-          ? customer.patienceMs / customer.maxPatienceMs
-          : 1;
-
-      return {
-        tableId: table.id,
-        occupied: true,
-        customerId: table.customerId as CustomerId,
-        dishSpriteKey: dishId !== undefined ? `item-${dishId}` : undefined,
-        patienceFraction,
-        tint: isActive ? ("active" as const) : tintForPatience(patienceFraction),
-        showPatienceBar: !isActive && customer !== undefined,
-      };
-    }
+  const tables = phase.tables.map((state, i) =>
+    tableVMFromState(i, state, inventory, restaurantType, unlockedCount)
   );
 
-  const actionPrompt = computeActionPrompt(
-    phase,
-    inventory,
-    restaurantType,
-    unlockedCount
-  );
-
-  return { tables, actionPrompt };
+  return {
+    tables,
+    kitchenBadge: phase.kitchen.orderUp.length,
+    playerLocation: phase.playerLocation,
+  };
 };
 
-const computeActionPrompt = (
+/** Get dish info for a ready_to_serve table's order (for scene rendering). */
+export interface ServingInfo {
+  readonly dishId: ItemId;
+  readonly dishName: string;
+  readonly dishSpriteKey: string;
+  readonly sellPrice: number;
+  readonly hasDish: boolean;
+  readonly orderId: OrderId;
+  readonly customerId: CustomerId;
+}
+
+export const getServingInfo = (
   phase: ServicePhase,
+  tableId: number,
   inventory: Inventory,
   restaurantType: RestaurantType,
   unlockedCount: number
-): ActionPrompt => {
-  switch (phase.subPhase.tag) {
-    case "waiting_for_customer": {
-      const msg =
-        phase.customerQueue.length > 0
-          ? `${phase.customerQueue.length} in queue...`
-          : "Waiting for customers...";
-      return { tag: "waiting", message: msg };
-    }
-    case "taking_order": {
-      const dishId = phase.subPhase.customer.dishId;
-      const dishItem = findItem(dishId);
-      return {
-        tag: "taking_order",
-        dishId,
-        dishName: dishItem?.name ?? dishId,
-        dishSpriteKey: `item-${dishId}`,
-        sellPrice: getPriceForDish(dishId, restaurantType, unlockedCount),
-        hasDish: countItem(inventory, dishId) > 0,
-      };
-    }
-    case "cooking":
-      return { tag: "cooking" };
-    case "serving": {
-      const dishId = phase.subPhase.order.dishId;
-      const dishItem = findItem(dishId);
-      return {
-        tag: "serving",
-        dishId,
-        dishName: dishItem?.name ?? dishId,
-        dishSpriteKey: `item-${dishId}`,
-        sellPrice: getPriceForDish(dishId, restaurantType, unlockedCount),
-        hasDish: countItem(inventory, dishId) > 0,
-      };
-    }
-  }
+): ServingInfo | undefined => {
+  const state = phase.tables[tableId];
+  if (state === undefined || state.tag !== "ready_to_serve") return undefined;
+  const dishId = state.customer.dishId;
+  const dishItem = findItem(dishId);
+  return {
+    dishId,
+    dishName: dishItem?.name ?? dishId,
+    dishSpriteKey: `item-${dishId}`,
+    sellPrice: getPriceForDish(dishId, restaurantType, unlockedCount),
+    hasDish: countItem(inventory, dishId) > 0,
+    orderId: state.orderId,
+    customerId: state.customer.id as CustomerId,
+  };
+};
+
+/** Get dish info for an order_pending table (for scene rendering before sending to kitchen). */
+export interface OrderPendingInfo {
+  readonly dishId: ItemId;
+  readonly dishName: string;
+  readonly dishSpriteKey: string;
+  readonly sellPrice: number;
+  readonly hasDish: boolean;
+  readonly customerId: CustomerId;
+}
+
+export const getOrderPendingInfo = (
+  phase: ServicePhase,
+  tableId: number,
+  inventory: Inventory,
+  restaurantType: RestaurantType,
+  unlockedCount: number
+): OrderPendingInfo | undefined => {
+  const state = phase.tables[tableId];
+  if (state === undefined || state.tag !== "order_pending") return undefined;
+  const dishId = state.customer.dishId;
+  const dishItem = findItem(dishId);
+  return {
+    dishId,
+    dishName: dishItem?.name ?? dishId,
+    dishSpriteKey: `item-${dishId}`,
+    sellPrice: getPriceForDish(dishId, restaurantType, unlockedCount),
+    hasDish: countItem(inventory, dishId) > 0,
+    customerId: state.customer.id as CustomerId,
+  };
 };

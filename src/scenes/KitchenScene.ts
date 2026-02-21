@@ -18,30 +18,35 @@ import {
   isTimedPhase,
   advanceToService,
   advanceToDayEnd,
-  finishCooking,
-  abandonOrder,
-  activeCustomerId,
+  movePlayer,
   defaultDurations,
 } from "../domain/day-cycle";
-import { unseatCustomer } from "../domain/tables";
 import { enabledRecipesFor } from "../domain/menu";
 import { findItem } from "../domain/items";
 import type { RecipeStep } from "../domain/recipes";
 import {
   createInventory,
-  countItem,
   hasIngredientsFor,
   removeItemSet,
   removeExpired,
   itemCounts,
   type Inventory,
 } from "../domain/inventory";
+import {
+  startCuttingBoardWork,
+  setPlayerAtCuttingBoard,
+  startPassiveStation,
+  type KitchenServiceState,
+  type KitchenOrder,
+} from "../domain/kitchen-service";
 import { timerBarVM } from "../domain/view/timer-vm";
 import {
   kitchenVM,
   type ActiveRecipe,
   type RecipeVM,
 } from "../domain/view/kitchen-vm";
+import { kitchenServiceVM, type KitchenServiceVM } from "../domain/view/kitchen-service-vm";
+import type { OrderId } from "../domain/branded";
 import {
   timerBar,
   sceneTitleY,
@@ -54,6 +59,14 @@ import {
   KITCHEN_INV_COL_W,
   KITCHEN_INV_ROW_H,
 } from "../domain/view/scene-layout";
+
+// Layout constants for service-mode station panel
+const STATION_PANEL_X = 450;
+const STATION_PANEL_Y = 95;
+const STATION_W = 280;
+const STATION_H = 100;
+const STATION_GAP = 110;
+const ORDER_UP_Y = 435;
 
 export class KitchenScene extends Phaser.Scene {
   private timerGraphics?: Phaser.GameObjects.Graphics;
@@ -72,6 +85,12 @@ export class KitchenScene extends Phaser.Scene {
   private scrollArrowUp: Phaser.GameObjects.Text | null = null;
   private scrollArrowDown: Phaser.GameObjects.Text | null = null;
 
+  // Service mode station UI
+  private stationObjects: Phaser.GameObjects.GameObject[] = [];
+  private lastStationKey = "";
+  private cuttingBoardActive = false;
+  private pendingCBOrderId: OrderId | undefined = undefined;
+
   constructor() {
     super("KitchenScene");
   }
@@ -83,7 +102,6 @@ export class KitchenScene extends Phaser.Scene {
       this.load.image(key, backgroundAssetPath(type, "kitchen"));
     }
 
-    // Preload item sprites for enabled recipes
     const unlocked = getActiveUnlockedCount(this.registry);
     const disabled = getActiveDisabledDishes(this.registry);
     const recipes = enabledRecipesFor(type, unlocked, disabled);
@@ -101,13 +119,16 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Reset cooking state from any previous scene invocation
     this.cookingTimer?.destroy();
     this.cookingTimer = undefined;
     this.activeRecipe = undefined;
     this.recipeStartTime = 0;
     this.activeRowFill = undefined;
     this.activeRowTimeText = undefined;
+    this.stationObjects = [];
+    this.lastStationKey = "";
+    this.cuttingBoardActive = false;
+    this.pendingCBOrderId = undefined;
 
     recordSceneEntry(this.registry, "KitchenScene");
     const w = this.scale.width;
@@ -134,7 +155,6 @@ export class KitchenScene extends Phaser.Scene {
       this.renderInventory();
       showTutorialHint(this, "kitchen_prep");
 
-      // Skip-ahead button
       addMenuButton(this, skipButtonPos.x, skipButtonPos.y, "Done Prepping \u25B6", () => {
         const current: DayCycle | undefined = this.registry.get("dayCycle");
         if (current === undefined || current.phase.tag !== "kitchen_prep") return;
@@ -143,12 +163,18 @@ export class KitchenScene extends Phaser.Scene {
         this.registry.set("dayCycle", next);
         this.scene.start("RestaurantScene");
       });
-    } else if (
-      cycle.phase.tag === "service" &&
-      cycle.phase.subPhase.tag === "cooking"
-    ) {
+    } else if (cycle.phase.tag === "service") {
       renderPixelText(this, ["THE KITCHEN"], { centerY: sceneTitleY });
-      this.renderServiceCooking();
+      this.renderServiceKitchen(cycle.phase.kitchen);
+
+      // "Go to Floor" button
+      addMenuButton(this, skipButtonPos.x, skipButtonPos.y, "\u25C4 Go to Floor", () => {
+        const current: DayCycle | undefined = this.registry.get("dayCycle");
+        if (!current || current.phase.tag !== "service") return;
+        const updated = movePlayer(current.phase, "floor");
+        this.registry.set("dayCycle", { ...current, phase: updated });
+        this.scene.start("RestaurantScene");
+      });
     }
 
     this.input.keyboard!.on("keydown-ESC", () => {
@@ -185,26 +211,26 @@ export class KitchenScene extends Phaser.Scene {
     const cycle: DayCycle | undefined = this.registry.get("dayCycle");
     if (cycle === undefined) return;
 
-    // Only tick for phases with timers
     if (cycle.phase.tag === "day_end") return;
 
     const updated = tickTimer(cycle, delta);
     this.registry.set("dayCycle", updated);
     if (!isTimedPhase(updated.phase)) return;
 
-    // Expire inventory items past their shelf life
-    const inv: Inventory =
-      this.registry.get("inventory") ?? createInventory();
+    // Expire inventory items
+    const inv: Inventory = this.registry.get("inventory") ?? createInventory();
     const now = Date.now();
     const afterExpiry = removeExpired(inv, now);
     if (afterExpiry.items.length < inv.items.length) {
       this.registry.set("inventory", afterExpiry);
-      this.renderRecipeList();
-      this.renderInventory();
+      if (updated.phase.tag === "kitchen_prep") {
+        this.renderRecipeList();
+        this.renderInventory();
+      }
     }
 
-    // Update inline cooking progress on active recipe row
-    if (this.activeRecipe !== undefined && this.activeRowFill) {
+    // Update inline cooking progress on active recipe row (prep mode)
+    if (updated.phase.tag === "kitchen_prep" && this.activeRecipe !== undefined && this.activeRowFill) {
       const elapsed = Date.now() - this.recipeStartTime;
       const fraction = Math.min(1, elapsed / this.activeRecipe.timeMs);
       this.activeRowFill.width = recipeRegion.width * fraction;
@@ -212,7 +238,7 @@ export class KitchenScene extends Phaser.Scene {
       this.activeRowTimeText?.setText(`${(remaining / 1000).toFixed(1)}s`);
     }
 
-    // Redraw timer bar using view model
+    // Redraw timer bar
     this.timerGraphics?.destroy();
     this.timerLabel?.destroy();
     const vm = timerBarVM(updated.phase, updated.day);
@@ -227,13 +253,17 @@ export class KitchenScene extends Phaser.Scene {
       this.timerLabel = result.label;
     }
 
+    // Service mode: update station UI
+    if (updated.phase.tag === "service") {
+      this.updateServiceStations(updated.phase.kitchen);
+    }
+
     if (isPhaseTimerExpired(updated)) {
       if (updated.phase.tag === "kitchen_prep") {
         const next = advanceToService(updated, defaultDurations.serviceMs);
         this.registry.set("dayCycle", next);
         this.scene.start("RestaurantScene");
       } else if (updated.phase.tag === "service") {
-        // Service timer expired while cooking
         this.cookingTimer?.destroy();
         const ended = advanceToDayEnd(updated);
         this.registry.set("dayCycle", ended);
@@ -242,8 +272,311 @@ export class KitchenScene extends Phaser.Scene {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Service mode station rendering
+  // ---------------------------------------------------------------------------
+
+  private renderServiceKitchen(kitchen: KitchenServiceState): void {
+    this.stationObjects.forEach((obj) => obj.destroy());
+    this.stationObjects = [];
+
+    const vm = kitchenServiceVM(kitchen);
+    this.renderStationPanel(0, "Cutting Board", vm.cuttingBoard, kitchen, true);
+    this.renderStationPanel(1, "Stove", vm.stove, kitchen, false);
+    this.renderStationPanel(2, "Oven", vm.oven, kitchen, false);
+    this.renderOrderUpPanel(vm, kitchen);
+    this.renderPendingOrdersList(vm, kitchen);
+  }
+
+  private renderStationPanel(
+    index: number,
+    label: string,
+    vm: import("../domain/view/kitchen-service-vm").StationVM,
+    kitchen: KitchenServiceState,
+    isCuttingBoard: boolean
+  ): void {
+    const x = STATION_PANEL_X;
+    const y = STATION_PANEL_Y + index * STATION_GAP;
+    const w = STATION_W;
+    const h = STATION_H - 10;
+
+    // Background
+    const bg = this.add.graphics();
+    bg.fillStyle(vm.tag === "idle" ? 0x1a1a2e : vm.tag === "working" ? 0x1a2e3a : 0x2e1a2e, 0.8);
+    bg.fillRoundedRect(x, y, w, h, 6);
+    this.stationObjects.push(bg);
+
+    // Label
+    this.stationObjects.push(
+      this.add.text(x + 8, y + 6, label.toUpperCase(), {
+        fontFamily: "monospace",
+        fontSize: "10px",
+        color: "#f5a623",
+        fontStyle: "bold",
+      })
+    );
+
+    if (vm.tag === "idle") {
+      this.stationObjects.push(
+        this.add.text(x + 8, y + 22, "Empty - assign an order", {
+          fontFamily: "monospace",
+          fontSize: "9px",
+          color: "#666677",
+        })
+      );
+    } else {
+      // Dish name
+      this.stationObjects.push(
+        this.add.text(x + 8, y + 22, vm.dishName ?? "", {
+          fontFamily: "monospace",
+          fontSize: "10px",
+          color: "#ccccff",
+        })
+      );
+
+      // Progress bar
+      const barX = x + 8;
+      const barY = y + h - 16;
+      const barW = w - 16;
+      const barH = 8;
+      const gfx = this.add.graphics();
+      gfx.fillStyle(0x333344, 1);
+      gfx.fillRoundedRect(barX, barY, barW, barH, 4);
+      gfx.fillStyle(isCuttingBoard ? (vm.isPlayerActive ? 0x4caf50 : 0x888899) : 0x2196f3, 1);
+      gfx.fillRoundedRect(barX, barY, barW * vm.progressFraction, barH, 4);
+      this.stationObjects.push(gfx);
+
+      // Sprite
+      if (vm.dishSpriteKey && this.textures.exists(vm.dishSpriteKey)) {
+        this.stationObjects.push(
+          this.add.image(x + w - 28, y + h / 2 - 2, vm.dishSpriteKey).setDisplaySize(28, 28)
+        );
+      }
+
+      // Cutting board: hold-to-work interaction
+      if (isCuttingBoard && vm.tag === "working") {
+        const hitZone = this.add
+          .zone(x + w / 2, y + h / 2, w, h)
+          .setInteractive({ useHandCursor: true });
+
+        hitZone.on("pointerdown", () => {
+          const current: DayCycle | undefined = this.registry.get("dayCycle");
+          if (!current || current.phase.tag !== "service") return;
+          const newK = setPlayerAtCuttingBoard(current.phase.kitchen, true);
+          this.registry.set("dayCycle", { ...current, phase: { ...current.phase, kitchen: newK } });
+          this.cuttingBoardActive = true;
+        });
+
+        hitZone.on("pointerup", () => this.releaseCuttingBoard());
+        hitZone.on("pointerout", () => this.releaseCuttingBoard());
+        this.stationObjects.push(hitZone);
+
+        const hint = vm.isPlayerActive ? "HOLD to work ▶" : "HOLD to work";
+        this.stationObjects.push(
+          this.add.text(x + 8, y + 38, hint, {
+            fontFamily: "monospace",
+            fontSize: "9px",
+            color: vm.isPlayerActive ? "#4caf50" : "#888899",
+          })
+        );
+      }
+    }
+  }
+
+  private releaseCuttingBoard(): void {
+    if (!this.cuttingBoardActive) return;
+    this.cuttingBoardActive = false;
+    const current: DayCycle | undefined = this.registry.get("dayCycle");
+    if (!current || current.phase.tag !== "service") return;
+    const newK = setPlayerAtCuttingBoard(current.phase.kitchen, false);
+    this.registry.set("dayCycle", { ...current, phase: { ...current.phase, kitchen: newK } });
+  }
+
+  private renderOrderUpPanel(vm: KitchenServiceVM, _kitchen: KitchenServiceState): void {
+    const x = STATION_PANEL_X;
+    const y = ORDER_UP_Y;
+    const w = STATION_W;
+    const h = 50;
+
+    const bg = this.add.graphics();
+    bg.fillStyle(vm.orderUp.length > 0 ? 0x1a3a1a : 0x1a1a2e, 0.8);
+    bg.fillRoundedRect(x, y, w, h, 6);
+    this.stationObjects.push(bg);
+
+    this.stationObjects.push(
+      this.add.text(x + 8, y + 6, "ORDER UP", {
+        fontFamily: "monospace",
+        fontSize: "10px",
+        color: vm.orderUp.length > 0 ? "#4caf50" : "#666677",
+        fontStyle: "bold",
+      })
+    );
+
+    if (vm.orderUp.length === 0) {
+      this.stationObjects.push(
+        this.add.text(x + 8, y + 24, "No orders ready", {
+          fontFamily: "monospace",
+          fontSize: "9px",
+          color: "#666677",
+        })
+      );
+    } else {
+      const names = vm.orderUp.map((o) => o.dishName).join(", ");
+      this.stationObjects.push(
+        this.add.text(x + 8, y + 24, `Ready: ${names}`, {
+          fontFamily: "monospace",
+          fontSize: "9px",
+          color: "#4caf50",
+        })
+      );
+    }
+  }
+
+  private renderPendingOrdersList(vm: KitchenServiceVM, kitchen: KitchenServiceState): void {
+    const listX = STATION_PANEL_X;
+    const listY = ORDER_UP_Y + 58;
+
+    this.stationObjects.push(
+      this.add.text(listX, listY, "PENDING ORDERS:", {
+        fontFamily: "monospace",
+        fontSize: "10px",
+        color: "#f5a623",
+        fontStyle: "bold",
+      })
+    );
+
+    if (vm.pendingOrders.length === 0) {
+      this.stationObjects.push(
+        this.add.text(listX, listY + 16, "(none)", {
+          fontFamily: "monospace",
+          fontSize: "9px",
+          color: "#666677",
+        })
+      );
+      return;
+    }
+
+    const isStoveIdle = kitchen.stove.tag === "idle";
+    const isOvenIdle = kitchen.oven.tag === "idle";
+    const isCBIdle = kitchen.cuttingBoard.tag === "idle";
+
+    vm.pendingOrders.forEach((order, i) => {
+      const rowY = listY + 16 + i * 32;
+
+      // Sprite
+      if (order.dishSpriteKey && this.textures.exists(order.dishSpriteKey)) {
+        this.stationObjects.push(
+          this.add.image(listX + 12, rowY + 8, order.dishSpriteKey).setDisplaySize(18, 18)
+        );
+      }
+
+      this.stationObjects.push(
+        this.add.text(listX + 26, rowY + 4, order.dishName, {
+          fontFamily: "monospace",
+          fontSize: "9px",
+          color: "#ccccff",
+        })
+      );
+
+      // Assign buttons
+      let btnX = listX + 26;
+      const btnY = rowY + 18;
+      const oid = order.orderId;
+
+      if (isCBIdle) {
+        const cbBtn = this.add.text(btnX, btnY, "[Cutting Board]", {
+          fontFamily: "monospace",
+          fontSize: "8px",
+          color: "#2196f3",
+          backgroundColor: "#11112e",
+          padding: { x: 4, y: 2 },
+        }).setInteractive({ useHandCursor: true });
+        cbBtn.on("pointerover", () => cbBtn.setColor("#66aaff"));
+        cbBtn.on("pointerout", () => cbBtn.setColor("#2196f3"));
+        cbBtn.on("pointerdown", () => {
+          const current: DayCycle | undefined = this.registry.get("dayCycle");
+          if (!current || current.phase.tag !== "service") return;
+          const DEFAULT_CB_DURATION = 8_000; // 8s for now
+          const newK = startCuttingBoardWork(current.phase.kitchen, oid, DEFAULT_CB_DURATION);
+          this.registry.set("dayCycle", { ...current, phase: { ...current.phase, kitchen: newK } });
+          this.pendingCBOrderId = oid;
+          this.forceStationRefresh();
+        });
+        this.stationObjects.push(cbBtn);
+        btnX += 100;
+      }
+
+      if (isStoveIdle) {
+        const stoveBtn = this.add.text(btnX, btnY, "[Stove]", {
+          fontFamily: "monospace",
+          fontSize: "8px",
+          color: "#ff9800",
+          backgroundColor: "#2e1a00",
+          padding: { x: 4, y: 2 },
+        }).setInteractive({ useHandCursor: true });
+        stoveBtn.on("pointerover", () => stoveBtn.setColor("#ffcc66"));
+        stoveBtn.on("pointerout", () => stoveBtn.setColor("#ff9800"));
+        stoveBtn.on("pointerdown", () => {
+          const current: DayCycle | undefined = this.registry.get("dayCycle");
+          if (!current || current.phase.tag !== "service") return;
+          const newK = startPassiveStation(current.phase.kitchen, "stove", oid, 15_000);
+          this.registry.set("dayCycle", { ...current, phase: { ...current.phase, kitchen: newK } });
+          this.forceStationRefresh();
+        });
+        this.stationObjects.push(stoveBtn);
+        btnX += 60;
+      }
+
+      if (isOvenIdle) {
+        const ovenBtn = this.add.text(btnX, btnY, "[Oven]", {
+          fontFamily: "monospace",
+          fontSize: "8px",
+          color: "#e91e63",
+          backgroundColor: "#2e001a",
+          padding: { x: 4, y: 2 },
+        }).setInteractive({ useHandCursor: true });
+        ovenBtn.on("pointerover", () => ovenBtn.setColor("#ff66aa"));
+        ovenBtn.on("pointerout", () => ovenBtn.setColor("#e91e63"));
+        ovenBtn.on("pointerdown", () => {
+          const current: DayCycle | undefined = this.registry.get("dayCycle");
+          if (!current || current.phase.tag !== "service") return;
+          const newK = startPassiveStation(current.phase.kitchen, "oven", oid, 20_000);
+          this.registry.set("dayCycle", { ...current, phase: { ...current.phase, kitchen: newK } });
+          this.forceStationRefresh();
+        });
+        this.stationObjects.push(ovenBtn);
+      }
+    });
+  }
+
+  private forceStationRefresh(): void {
+    this.lastStationKey = "";
+  }
+
+  private updateServiceStations(kitchen: KitchenServiceState): void {
+    const vm = kitchenServiceVM(kitchen);
+    const key = JSON.stringify({
+      cb: vm.cuttingBoard.tag,
+      cbProgress: Math.floor((vm.cuttingBoard.progressFraction ?? 0) * 20),
+      cbActive: vm.cuttingBoard.isPlayerActive,
+      stove: vm.stove.tag,
+      stoveProgress: Math.floor((vm.stove.progressFraction ?? 0) * 20),
+      oven: vm.oven.tag,
+      ovenProgress: Math.floor((vm.oven.progressFraction ?? 0) * 20),
+      pending: vm.pendingOrders.length,
+      orderUp: vm.orderUp.length,
+    });
+
+    if (key === this.lastStationKey) return;
+    this.lastStationKey = key;
+    this.renderServiceKitchen(kitchen);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kitchen prep mode rendering (unchanged)
+  // ---------------------------------------------------------------------------
+
   private renderRecipeList(): void {
-    // Clean up previous scroll infrastructure
     if (this.scrollContainer) {
       this.scrollContainer.destroy(true);
       this.scrollContainer = null;
@@ -262,8 +595,7 @@ export class KitchenScene extends Phaser.Scene {
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
     const disabledDishes = getActiveDisabledDishes(this.registry);
-    const inv: Inventory =
-      this.registry.get("inventory") ?? createInventory();
+    const inv: Inventory = this.registry.get("inventory") ?? createInventory();
 
     const activeRecipeState: ActiveRecipe | undefined =
       this.activeRecipe !== undefined
@@ -273,14 +605,12 @@ export class KitchenScene extends Phaser.Scene {
     const vm = kitchenVM(inv, type, unlockedCount, activeRecipeState, Date.now(), disabledDishes);
     const isBusy = this.activeRecipe !== undefined;
 
-    // Sort: craftable first — no cap on visible count
     const sortedRecipes = [...vm.recipes].sort((a, b) => {
       const aCanMake = a.canMake ? 0 : 1;
       const bCanMake = b.canMake ? 0 : 1;
       return aCanMake - bCanMake;
     });
 
-    // Reset inline progress references (containers are destroyed above)
     this.activeRowFill = undefined;
     this.activeRowTimeText = undefined;
 
@@ -295,7 +625,6 @@ export class KitchenScene extends Phaser.Scene {
       const container = this.add.container(pos.x, pos.y);
       const isActiveRow = recipe.stepId === this.activeRecipe?.id;
 
-      // Background
       const bgColor = isActiveRow ? 0x1a1a3e : recipe.canMake ? 0x1a2e1a : 0x1a1a2e;
       const bgAlpha = isActiveRow ? 0.85 : recipe.canMake && !isBusy ? 0.85 : 0.5;
       const bg = this.add.graphics();
@@ -303,7 +632,6 @@ export class KitchenScene extends Phaser.Scene {
       bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, rowWidth, RECIPE_ROW_H - 4, 4);
       container.add(bg);
 
-      // Fill overlay for active (cooking) row
       if (isActiveRow) {
         const elapsed = Date.now() - this.recipeStartTime;
         const fraction = Math.min(1, elapsed / this.activeRecipe!.timeMs);
@@ -316,7 +644,6 @@ export class KitchenScene extends Phaser.Scene {
         this.activeRowFill = fill;
       }
 
-      // Output item icon
       if (this.textures.exists(recipe.outputSpriteKey)) {
         const sprite = this.add
           .image(22, 0, recipe.outputSpriteKey)
@@ -324,7 +651,6 @@ export class KitchenScene extends Phaser.Scene {
         container.add(sprite);
       }
 
-      // Recipe name
       const nameColor = isActiveRow ? "#2196f3" : recipe.canMake ? "#4caf50" : "#666677";
       const nameText = this.add
         .text(46, -10, recipe.outputName, {
@@ -336,7 +662,6 @@ export class KitchenScene extends Phaser.Scene {
         .setOrigin(0, 0.5);
       container.add(nameText);
 
-      // Input requirements (from VM)
       const inputsStr = recipe.inputs
         .map((inp) =>
           `${inp.isShort ? "!" : ""}${inp.name}(${inp.have}/${inp.need})`
@@ -351,7 +676,6 @@ export class KitchenScene extends Phaser.Scene {
         .setOrigin(0, 0.5);
       container.add(inputsText);
 
-      // Time label -- countdown for active row, static for others
       if (isActiveRow) {
         const remaining = Math.max(0, this.activeRecipe!.timeMs - (Date.now() - this.recipeStartTime));
         const timeText = this.add
@@ -375,7 +699,6 @@ export class KitchenScene extends Phaser.Scene {
         container.add(timeText);
       }
 
-      // Make clickable -- need to find the original RecipeStep for startRecipe
       if (recipe.canMake && !isBusy) {
         const hitZone = this.add
           .zone(rowWidth / 2, 0, rowWidth, RECIPE_ROW_H - 4)
@@ -400,8 +723,7 @@ export class KitchenScene extends Phaser.Scene {
       this.scrollContainer!.add(container);
     });
 
-    // Apply geometry mask to clip content to recipe region
-    this.maskGraphics = this.add.graphics();
+    this.maskGraphics = this.make.graphics({}, false);
     this.maskGraphics.fillStyle(0xffffff);
     this.maskGraphics.fillRect(
       recipeRegion.x,
@@ -412,7 +734,6 @@ export class KitchenScene extends Phaser.Scene {
     const mask = this.maskGraphics.createGeometryMask();
     this.scrollContainer.setMask(mask);
 
-    // Add scroll arrows when content overflows the panel
     if (this.totalRecipeHeight > recipeRegion.height) {
       this.scrollArrowUp = this.add
         .text(recipeRegion.x + recipeRegion.width - 4, recipeRegion.y + 4, "▲", {
@@ -480,13 +801,11 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   private startRecipe(recipe: RecipeStep): void {
-    if (this.activeRecipe !== undefined) return; // already cooking
+    if (this.activeRecipe !== undefined) return;
 
-    const inv: Inventory =
-      this.registry.get("inventory") ?? createInventory();
+    const inv: Inventory = this.registry.get("inventory") ?? createInventory();
     if (!hasIngredientsFor(inv, recipe)) return;
 
-    // Consume inputs using domain function
     const afterConsume = removeItemSet(inv, recipe.inputs);
     if (afterConsume === undefined) return;
 
@@ -494,11 +813,9 @@ export class KitchenScene extends Phaser.Scene {
     this.recipeStartTime = Date.now();
     this.registry.set("inventory", afterConsume);
 
-    // Refresh display
     this.renderRecipeList();
     this.renderInventory();
 
-    // Set timer for recipe completion (instant if timeMs is 0, e.g. assemble)
     if (recipe.timeMs <= 0) {
       this.finishRecipe(recipe);
     } else {
@@ -509,9 +826,7 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   private finishRecipe(recipe: RecipeStep): void {
-    // Add output to inventory
-    const inv: Inventory =
-      this.registry.get("inventory") ?? createInventory();
+    const inv: Inventory = this.registry.get("inventory") ?? createInventory();
     const updated: Inventory = {
       items: [...inv.items, { itemId: recipe.output, createdAt: Date.now() }],
     };
@@ -521,22 +836,6 @@ export class KitchenScene extends Phaser.Scene {
     this.activeRowFill = undefined;
     this.activeRowTimeText = undefined;
 
-    // Check if we just completed a service cooking order
-    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
-    if (
-      cycle !== undefined &&
-      cycle.phase.tag === "service" &&
-      cycle.phase.subPhase.tag === "cooking"
-    ) {
-      const dishId = cycle.phase.subPhase.order.dishId;
-      if (countItem(updated, dishId) > 0) {
-        // We have the dish! Finish cooking and go back to restaurant
-        this.finishServiceCooking();
-        return;
-      }
-    }
-
-    // Refresh display
     this.renderRecipeList();
     this.renderInventory();
   }
@@ -545,11 +844,9 @@ export class KitchenScene extends Phaser.Scene {
     this.invObjects.forEach((obj) => obj.destroy());
     this.invObjects = [];
 
-    const inv: Inventory =
-      this.registry.get("inventory") ?? createInventory();
+    const inv: Inventory = this.registry.get("inventory") ?? createInventory();
     const counts = itemCounts(inv);
 
-    // Title
     const title = this.add
       .text(kitchenInvRegion.x, kitchenInvRegion.y - 20, "INVENTORY", {
         fontFamily: "monospace",
@@ -562,7 +859,6 @@ export class KitchenScene extends Phaser.Scene {
       .setOrigin(0);
     this.invObjects.push(title);
 
-    // Item list
     counts.forEach((entry, i) => {
       const col = Math.floor(i / 12);
       const row = i % 12;
@@ -573,7 +869,6 @@ export class KitchenScene extends Phaser.Scene {
       const name = item?.name ?? entry.itemId;
       const shortName = name.length > 14 ? name.slice(0, 13) + "." : name;
 
-      // Item icon (small)
       const spriteKey = `item-${entry.itemId}`;
       if (this.textures.exists(spriteKey)) {
         const sprite = this.add
@@ -602,101 +897,5 @@ export class KitchenScene extends Phaser.Scene {
         .setOrigin(0);
       this.invObjects.push(empty);
     }
-  }
-
-  private renderServiceCooking(): void {
-    const cycle: DayCycle | undefined = this.registry.get("dayCycle");
-    if (
-      cycle === undefined ||
-      cycle.phase.tag !== "service" ||
-      cycle.phase.subPhase.tag !== "cooking"
-    )
-      return;
-
-    const dishId = cycle.phase.subPhase.order.dishId;
-    const dishItem = findItem(dishId);
-    const dishName = dishItem?.name ?? dishId;
-
-    // Check if we have the dish in inventory already
-    const inv: Inventory =
-      this.registry.get("inventory") ?? createInventory();
-    const hasDish = countItem(inv, dishId) > 0;
-
-    if (hasDish) {
-      // We have the dish! Finish cooking immediately
-      this.finishServiceCooking();
-      return;
-    }
-
-    // Show order subtitle between title and recipe list
-    const spriteKey = `item-${dishId}`;
-    const orderY = recipeRegion.y - 8;
-    if (this.textures.exists(spriteKey)) {
-      this.add
-        .image(recipeRegion.x + 10, orderY, spriteKey)
-        .setDisplaySize(20, 20);
-    }
-    this.add
-      .text(recipeRegion.x + 26, orderY, `Order: ${dishName}`, {
-        fontFamily: "monospace",
-        fontSize: "11px",
-        color: "#f5a623",
-        fontStyle: "bold",
-        backgroundColor: "#1a1a2e",
-        padding: { x: 4, y: 2 },
-      })
-      .setOrigin(0, 0.5);
-
-    // Abandon order button
-    addMenuButton(
-      this,
-      skipButtonPos.x,
-      skipButtonPos.y,
-      "Abandon Order",
-      () => this.abandonServiceCooking()
-    );
-
-    // Show recipe steps for this dish (same as prep mode but filtered)
-    this.renderRecipeList();
-    this.renderInventory();
-  }
-
-  private abandonServiceCooking(): void {
-    const current: DayCycle | undefined = this.registry.get("dayCycle");
-    if (
-      current === undefined ||
-      current.phase.tag !== "service" ||
-      current.phase.subPhase.tag !== "cooking"
-    )
-      return;
-
-    this.cookingTimer?.destroy();
-    const custId = activeCustomerId(current.phase);
-    const abandoned = abandonOrder(current.phase);
-    const updatedLayout =
-      custId !== undefined
-        ? unseatCustomer(abandoned.tableLayout, custId)
-        : abandoned.tableLayout;
-    const updated: DayCycle = {
-      ...current,
-      phase: { ...abandoned, tableLayout: updatedLayout },
-    };
-    this.registry.set("dayCycle", updated);
-    this.scene.start("RestaurantScene");
-  }
-
-  private finishServiceCooking(): void {
-    const current: DayCycle | undefined = this.registry.get("dayCycle");
-    if (
-      current === undefined ||
-      current.phase.tag !== "service" ||
-      current.phase.subPhase.tag !== "cooking"
-    )
-      return;
-
-    const cooked = finishCooking(current.phase);
-    const updated: DayCycle = { ...current, phase: cooked };
-    this.registry.set("dayCycle", updated);
-    this.scene.start("RestaurantScene");
   }
 }

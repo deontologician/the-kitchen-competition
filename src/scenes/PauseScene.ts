@@ -124,7 +124,8 @@ export class PauseScene extends Phaser.Scene {
       slot.coins,
       slot.scene,
       Date.now(),
-      slot.unlockedDishes
+      slot.unlockedDishes,
+      slot.disabledDishes
     );
     this.registry.set("saveStore", updateSlot(store, updated));
 

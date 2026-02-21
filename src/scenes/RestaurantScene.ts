@@ -18,6 +18,7 @@ import {
 import {
   type DayCycle,
   type ServicePhase,
+  type TableState,
   createCustomer,
   tickTimer,
   isPhaseTimerExpired,
@@ -25,18 +26,16 @@ import {
   advanceToDayEnd,
   advanceToNextDay,
   enqueueCustomer,
-  beginTakingOrder,
-  beginCooking,
-  finishCooking,
-  finishServing,
-  abandonOrder,
-  activeCustomerId,
-  tickCustomerPatience,
-  removeExpiredCustomers,
+  takeOrder,
+  sendOrderToKitchen,
+  serveOrder,
+  serveDirectFromInventory,
+  movePlayer,
+  tickServicePhase,
   isRestaurantIdle,
   defaultDurations,
 } from "../domain/day-cycle";
-import { pickRandomDish, unlockedMenuFor, unlockedDishIdsFor } from "../domain/menu";
+import { pickRandomDish, unlockedMenuFor } from "../domain/menu";
 import { findItem } from "../domain/items";
 import {
   createInventory,
@@ -45,11 +44,6 @@ import {
   removeExpired,
   type Inventory,
 } from "../domain/inventory";
-import {
-  emptyTableIds,
-  seatCustomer,
-  unseatCustomer,
-} from "../domain/tables";
 import { difficultyForDay } from "../domain/difficulty";
 import {
   type Leaderboard,
@@ -77,7 +71,7 @@ import {
   createSaveSlot,
 } from "../domain/save-slots";
 import { timerBarVM } from "../domain/view/timer-vm";
-import { restaurantVM } from "../domain/view/restaurant-vm";
+import { restaurantVM, getServingInfo, getOrderPendingInfo } from "../domain/view/restaurant-vm";
 import { dayEndVM } from "../domain/view/day-end-vm";
 import {
   canvas,
@@ -92,9 +86,12 @@ export class RestaurantScene extends Phaser.Scene {
   private timerLabel?: Phaser.GameObjects.Text;
   private coinHudGraphics?: Phaser.GameObjects.Graphics;
   private customerSpawnTimer?: Phaser.Time.TimerEvent;
-  private statusObjects: Phaser.GameObjects.GameObject[] = [];
+  private tableActionObjects: Phaser.GameObjects.GameObject[][] = [];
+  private tableActionStates: string[] = []; // last rendered tag per table
   private inventoryObjects: Phaser.GameObjects.GameObject[] = [];
   private bubbleObjects: Phaser.GameObjects.GameObject[] = [];
+  private kitchenButtonObjects: Phaser.GameObjects.GameObject[] = [];
+  private lastKitchenBadge = -1;
   private dayEndShown = false;
   private tableSprites: Phaser.GameObjects.Image[] = [];
   private customersSpawned = 0;
@@ -127,7 +124,10 @@ export class RestaurantScene extends Phaser.Scene {
 
   create(): void {
     this.dayEndShown = false;
-    this.statusObjects = [];
+    this.tableActionObjects = [];
+    this.tableActionStates = [];
+    this.kitchenButtonObjects = [];
+    this.lastKitchenBadge = -1;
     this.tableSprites = [];
     this.coinHudGraphics = undefined;
     this.notifications = createNotificationState();
@@ -144,7 +144,7 @@ export class RestaurantScene extends Phaser.Scene {
     const cycle = this.getCycle();
     const numTables =
       cycle !== undefined && cycle.phase.tag === "service"
-        ? cycle.phase.tableLayout.tables.length
+        ? cycle.phase.tables.length
         : 4;
 
     this.tableCells = tablePositions(numTables);
@@ -152,6 +152,10 @@ export class RestaurantScene extends Phaser.Scene {
       const sprite = this.add.image(pos.x, pos.y, tKey).setDisplaySize(TABLE_SIZE, TABLE_SIZE);
       this.tableSprites.push(sprite);
     });
+
+    // Pre-allocate per-table action object arrays
+    this.tableActionObjects = Array.from({ length: numTables }, () => []);
+    this.tableActionStates = Array.from({ length: numTables }, () => "");
 
     renderPanel(this, { marginTop: 80, marginBottom: 40, marginLeft: 40, marginRight: 40 }, { fillAlpha: 0.35 });
     renderPixelText(this, ["RESTAURANT"], { centerY: restaurantTitleY });
@@ -195,30 +199,28 @@ export class RestaurantScene extends Phaser.Scene {
     if (cycle === undefined) return;
     if (cycle.phase.tag !== "service") return;
 
+    const prevTables = cycle.phase.tables;
     const ticked = tickTimer(cycle, delta);
     if (ticked.phase.tag !== "service") return;
 
-    // Tick customer patience and remove expired
-    const withPatience = tickCustomerPatience(ticked.phase, delta);
-    const beforeCount = withPatience.customerQueue.length;
-    const servicePhase = removeExpiredCustomers(withPatience);
-    const afterCount = servicePhase.customerQueue.length;
+    // Combined service tick (patience + expiry + kitchen)
+    const servicePhase = tickServicePhase(ticked.phase, delta);
     const updated: DayCycle = { ...ticked, phase: servicePhase };
     this.registry.set("dayCycle", updated);
 
-    if (afterCount < beforeCount) {
-      const left = beforeCount - afterCount;
-      const expiredIds = withPatience.customerQueue
-        .filter((c) => c.patienceMs <= 0)
-        .map((c) => c.id);
-      const expiredTableIds = withPatience.tableLayout.tables
-        .filter((t) => t.customerId !== undefined && expiredIds.includes(t.customerId))
-        .map((t) => t.id);
-      animateCustomerLeft(this, expiredTableIds, this.tableSprites);
+    // Detect customers who left (tables that went from non-empty to empty)
+    const departedTableIds = prevTables.reduce<number[]>((acc, prev, i) => {
+      const curr = servicePhase.tables[i];
+      if (prev.tag !== "empty" && curr?.tag === "empty") acc.push(i);
+      return acc;
+    }, []);
+    const lostCount = servicePhase.customersLost - cycle.phase.customersLost;
+    if (lostCount > 0) {
+      animateCustomerLeft(this, departedTableIds, this.tableSprites);
       showNotification(
         this,
         this.notifications,
-        left === 1 ? "Customer left!" : `${left} customers left!`,
+        lostCount === 1 ? "Customer left!" : `${lostCount} customers left!`,
         "#ff6666"
       );
     }
@@ -238,7 +240,7 @@ export class RestaurantScene extends Phaser.Scene {
       );
     }
 
-    // Redraw timer bar using view model
+    // Redraw timer bar
     this.timerGraphics?.destroy();
     this.timerLabel?.destroy();
     const timerVM = timerBarVM(servicePhase, cycle.day);
@@ -254,6 +256,8 @@ export class RestaurantScene extends Phaser.Scene {
     }
 
     this.updateTableTints(servicePhase);
+    this.updateTableActionButtons(servicePhase);
+    this.updateKitchenButton(servicePhase);
     this.inventoryObjects = renderInventorySidebar(this, this.getInventory(), this.inventoryObjects);
     this.renderCoinHud();
 
@@ -261,46 +265,21 @@ export class RestaurantScene extends Phaser.Scene {
       this.customerSpawnTimer?.destroy();
       const ended = advanceToDayEnd(updated);
       this.registry.set("dayCycle", ended);
-      this.clearStatus();
+      this.clearAllTableButtons();
+      this.clearKitchenButton();
       this.showDayEnd(ended);
       return;
     }
 
     // End day early when restaurant is idle and inventory has no food left
-    if (updated.phase.tag === "service" && isRestaurantIdle(updated.phase) && this.getInventory().items.length === 0) {
+    if (isRestaurantIdle(servicePhase) && this.getInventory().items.length === 0) {
       this.customerSpawnTimer?.destroy();
       const ended = advanceToDayEnd(updated);
       this.registry.set("dayCycle", ended);
-      this.clearStatus();
+      this.clearAllTableButtons();
+      this.clearKitchenButton();
       this.showDayEnd(ended);
       return;
-    }
-
-    // Use restaurant view model for action prompts
-    if (updated.phase.tag === "service") {
-      const phase = updated.phase;
-      if (
-        phase.subPhase.tag === "waiting_for_customer" &&
-        phase.customerQueue.length > 0
-      ) {
-        const taking = beginTakingOrder(phase);
-        if (taking !== undefined) {
-          const withTaking: DayCycle = { ...updated, phase: taking };
-          this.registry.set("dayCycle", withTaking);
-          this.showTakingOrder(withTaking);
-          return;
-        }
-      }
-
-      const type = getActiveRestaurantType(this.registry);
-      const unlockedCount = getActiveUnlockedCount(this.registry);
-      const rvm = restaurantVM(phase, this.getInventory(), type, unlockedCount);
-
-      if (rvm.actionPrompt.tag === "serving") {
-        this.showServingPrompt(updated, rvm.actionPrompt);
-      } else if (rvm.actionPrompt.tag === "waiting") {
-        this.showWaitingStatus(rvm.actionPrompt.message);
-      }
     }
   }
 
@@ -319,14 +298,15 @@ export class RestaurantScene extends Phaser.Scene {
     const difficulty = difficultyForDay(cycle.day);
     if (this.customersSpawned >= difficulty.maxCustomersPerDay) return;
 
-    const empty = emptyTableIds(cycle.phase.tableLayout);
-    if (empty.length === 0) return;
+    // Check if there's any room (table or queue) to accept customers
+    const allFull = cycle.phase.tables.every((t) => t.tag !== "empty") &&
+      cycle.phase.tables.length > 0;
+    if (allFull) return; // Don't spawn if all tables occupied (queue-less model)
 
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
     const disabledDishes = getActiveDisabledDishes(this.registry);
     const menuItem = pickRandomDish(type, Math.random(), unlockedCount, disabledDishes);
-    const tableId = empty[Math.floor(Math.random() * empty.length)];
     const patienceMs =
       difficulty.customerPatienceMinMs +
       Math.floor(
@@ -335,243 +315,228 @@ export class RestaurantScene extends Phaser.Scene {
       );
     const customer = createCustomer(customerId(crypto.randomUUID()), menuItem.dishId, patienceMs);
     this.customersSpawned++;
-    const updatedLayout = seatCustomer(cycle.phase.tableLayout, tableId, customer.id);
-    const updatedPhase = enqueueCustomer(
-      { ...cycle.phase, tableLayout: updatedLayout },
-      customer
-    );
+
+    // enqueueCustomer auto-seats at first empty table
+    const updatedPhase = enqueueCustomer(cycle.phase, customer);
     this.registry.set("dayCycle", { ...cycle, phase: updatedPhase });
 
-    if (tableId < this.tableSprites.length) {
-      animateArrival(this, this.tableSprites[tableId]);
+    // Find which table was seated and animate it
+    const seatedIdx = updatedPhase.tables.findIndex(
+      (t) => t.tag === "customer_waiting" &&
+        t.customer.id === customer.id
+    );
+    if (seatedIdx >= 0 && seatedIdx < this.tableSprites.length) {
+      animateArrival(this, this.tableSprites[seatedIdx]);
     }
   }
 
-  private showTakingOrder(cycle: DayCycle): void {
-    if (cycle.phase.tag !== "service") return;
-    if (cycle.phase.subPhase.tag !== "taking_order") return;
-    this.clearStatus();
+  // ---------------------------------------------------------------------------
+  // Per-table action buttons
+  // ---------------------------------------------------------------------------
 
+  private updateTableActionButtons(phase: ServicePhase): void {
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
-    const rvm = restaurantVM(cycle.phase, this.getInventory(), type, unlockedCount);
-    if (rvm.actionPrompt.tag !== "taking_order") return;
+    const inv = this.getInventory();
 
-    const prompt = rvm.actionPrompt;
-    const centerX = canvas.width / 2;
-    const customer = cycle.phase.subPhase.customer;
+    phase.tables.forEach((tableState, tableId) => {
+      const lastState = this.tableActionStates[tableId] ?? "";
+      // Use a compound key that also encodes hasDish for order_pending
+      const hasDish = tableState.tag === "order_pending" || tableState.tag === "customer_waiting"
+        ? countItem(inv, (tableState as { customer: { dishId: string } }).customer?.dishId ?? "") > 0
+        : false;
+      const stateKey = tableState.tag + (hasDish ? "_has" : "_no");
 
-    this.statusObjects.push(
-      this.add
-        .text(centerX, 200, `ORDER: ${prompt.dishName}`, {
-          fontFamily: "monospace",
-          fontSize: "16px",
-          color: "#f5a623",
-          backgroundColor: "#1a1a2e",
-          padding: { x: 12, y: 8 },
-        })
-        .setOrigin(0.5)
-    );
+      if (stateKey === lastState) return; // no change
 
-    this.addDishSprite(centerX, 250, prompt.dishId);
+      // Destroy old buttons for this table
+      this.tableActionObjects[tableId]?.forEach((obj) => obj.destroy());
+      this.tableActionObjects[tableId] = [];
+      this.tableActionStates[tableId] = stateKey;
 
-    if (prompt.hasDish) {
-      this.statusObjects.push(
-        this.add
-          .text(centerX, 285, `In stock! Sell: $${prompt.sellPrice}`, {
-            fontFamily: "monospace",
-            fontSize: "12px",
-            color: "#4caf50",
-            backgroundColor: "#1a1a2e",
-            padding: { x: 6, y: 3 },
-          })
-          .setOrigin(0.5)
-      );
+      if (!this.tableCells[tableId]) return;
+      const pos = this.tableCells[tableId];
+      const btnX = pos.x;
+      const btnY = pos.y + 50;
 
-      const serveDishId = prompt.dishId;
-      const serveCustomerId = customer.id;
-      const price = prompt.sellPrice;
-      this.statusObjects.push(
-        addMenuButton(this, centerX - 80, 320, "Serve Now", () => {
-          const current = this.getCycle();
-          if (
-            current === undefined ||
-            current.phase.tag !== "service" ||
-            current.phase.subPhase.tag !== "taking_order"
-          )
-            return;
+      switch (tableState.tag) {
+        case "customer_waiting": {
+          const dishId = tableState.customer.dishId;
+          const hasDishNow = countItem(inv, dishId) > 0;
+          if (hasDishNow) {
+            // Fast path: dish already prepped — show "Serve Now"
+            const info = getOrderPendingInfo(
+              { ...phase, tables: phase.tables.map((t, i) => i === tableId ? { tag: "order_pending" as const, customer: tableState.customer } : t) },
+              tableId, inv, type, unlockedCount
+            );
+            const price = info?.sellPrice ?? 5;
+            const btn = addMenuButton(this, btnX, btnY, "Serve Now", () => {
+              const current = this.getCycle();
+              if (!current || current.phase.tag !== "service") return;
+              const t = current.phase.tables[tableId];
+              if (t.tag !== "customer_waiting") return;
+              this.doServe(tableId, t.customer.id, t.customer.dishId, price);
+            });
+            this.tableActionObjects[tableId].push(btn);
+          } else {
+            // Show "Take Order" button
+            const btn = addMenuButton(this, btnX, btnY, "Take Order", () => {
+              const current = this.getCycle();
+              if (!current || current.phase.tag !== "service") return;
+              const updated = takeOrder(current.phase, tableId);
+              this.registry.set("dayCycle", { ...current, phase: updated });
+              // Force button state refresh
+              if (this.tableActionStates[tableId]) {
+                this.tableActionStates[tableId] = "";
+              }
+            });
+            this.tableActionObjects[tableId].push(btn);
+          }
+          break;
+        }
 
-          this.doServe(current, serveCustomerId, serveDishId, price);
-        })
-      );
-    } else {
-      this.statusObjects.push(
-        this.add
-          .text(centerX, 285, `Sell: $${prompt.sellPrice}`, {
-            fontFamily: "monospace",
-            fontSize: "12px",
-            color: "#4caf50",
-            backgroundColor: "#1a1a2e",
-            padding: { x: 6, y: 3 },
-          })
-          .setOrigin(0.5)
-      );
+        case "order_pending": {
+          const dishId = tableState.customer.dishId;
+          const hasDishNow = countItem(inv, dishId) > 0;
+          const info = getOrderPendingInfo(phase, tableId, inv, type, unlockedCount);
+          const price = info?.sellPrice ?? 5;
 
-      this.statusObjects.push(
-        addMenuButton(this, centerX - 80, 320, "Cook Order", () => {
-          const current = this.getCycle();
-          if (
-            current === undefined ||
-            current.phase.tag !== "service" ||
-            current.phase.subPhase.tag !== "taking_order"
-          )
-            return;
+          if (hasDishNow) {
+            // Dish is in inventory — serve directly
+            const btn = addMenuButton(this, btnX, btnY, "Serve Now", () => {
+              const current = this.getCycle();
+              if (!current || current.phase.tag !== "service") return;
+              const t = current.phase.tables[tableId];
+              if (t.tag !== "order_pending") return;
+              this.doServe(tableId, t.customer.id, t.customer.dishId, price);
+            });
+            this.tableActionObjects[tableId].push(btn);
+          } else {
+            // Send to kitchen
+            const btn = addMenuButton(this, btnX, btnY, "To Kitchen", () => {
+              const current = this.getCycle();
+              if (!current || current.phase.tag !== "service") return;
+              const t = current.phase.tables[tableId];
+              if (t.tag !== "order_pending") return;
+              const oid = orderId(crypto.randomUUID());
+              const updated = sendOrderToKitchen(current.phase, tableId, oid);
+              this.registry.set("dayCycle", { ...current, phase: updated });
+            });
+            this.tableActionObjects[tableId].push(btn);
+          }
+          break;
+        }
 
-          const cooking = beginCooking(
-            current.phase,
-            orderId(crypto.randomUUID()),
-            current.phase.subPhase.customer.dishId
-          );
-          this.registry.set("dayCycle", { ...current, phase: cooking });
-          this.scene.start("KitchenScene");
-        })
-      );
-    }
+        case "in_kitchen":
+          // No button — order is being cooked
+          break;
 
-    this.statusObjects.push(
-      addMenuButton(this, centerX + 80, 320, "Skip", () => {
-        const current = this.getCycle();
-        if (
-          current === undefined ||
-          current.phase.tag !== "service" ||
-          current.phase.subPhase.tag !== "taking_order"
-        )
-          return;
+        case "ready_to_serve": {
+          const info = getServingInfo(phase, tableId, inv, type, unlockedCount);
+          if (info !== undefined) {
+            const price = info.sellPrice;
+            const custId = info.customerId;
+            const dId = info.dishId;
+            const btn = addMenuButton(this, btnX, btnY, "Serve!", () => {
+              const current = this.getCycle();
+              if (!current || current.phase.tag !== "service") return;
+              const t = current.phase.tables[tableId];
+              if (t.tag !== "ready_to_serve") return;
+              this.doServeFromOrderUp(tableId, custId, dId, price);
+            });
+            this.tableActionObjects[tableId].push(btn);
+          }
+          break;
+        }
 
-        const custId = activeCustomerId(current.phase);
-        const abandoned = abandonOrder(current.phase);
-        const updatedLayout =
-          custId !== undefined
-            ? unseatCustomer(abandoned.tableLayout, custId)
-            : abandoned.tableLayout;
-        this.registry.set("dayCycle", {
-          ...current,
-          phase: { ...abandoned, tableLayout: updatedLayout },
-        });
-        this.clearStatus();
-      })
-    );
+        case "empty":
+          // No button
+          break;
+      }
+    });
   }
 
-  private showServingPrompt(
-    cycle: DayCycle,
-    prompt: Extract<
-      ReturnType<typeof restaurantVM>["actionPrompt"],
-      { readonly tag: "serving" }
-    >
-  ): void {
-    if (cycle.phase.tag !== "service" || cycle.phase.subPhase.tag !== "serving")
-      return;
+  private clearAllTableButtons(): void {
+    this.tableActionObjects.forEach((objs) => objs.forEach((obj) => obj.destroy()));
+    this.tableActionObjects = [];
+    this.tableActionStates = [];
+  }
 
-    // Only show once
-    if (
-      this.statusObjects.length > 0 &&
-      this.statusObjects.some(
-        (obj) =>
-          obj instanceof Phaser.GameObjects.Text &&
-          (obj as Phaser.GameObjects.Text).text === "Serve Dish"
-      )
-    )
-      return;
+  // ---------------------------------------------------------------------------
+  // Kitchen button
+  // ---------------------------------------------------------------------------
 
-    this.clearStatus();
-    const centerX = canvas.width / 2;
-    const order = cycle.phase.subPhase.order;
+  private updateKitchenButton(phase: ServicePhase): void {
+    const badge = phase.kitchen.orderUp.length;
+    if (badge === this.lastKitchenBadge) return;
+    this.lastKitchenBadge = badge;
 
-    if (prompt.hasDish) {
-      this.statusObjects.push(
-        this.add
-          .text(centerX, 210, `SERVE: ${prompt.dishName}`, {
-            fontFamily: "monospace",
-            fontSize: "16px",
-            color: "#4caf50",
-            backgroundColor: "#1a1a2e",
-            padding: { x: 12, y: 8 },
-          })
-          .setOrigin(0.5)
-      );
+    this.clearKitchenButton();
 
-      this.addDishSprite(centerX, 260, prompt.dishId);
+    const label = badge > 0 ? `Kitchen (${badge} ready!)` : "Kitchen \u25BA";
+    const btn = addMenuButton(this, canvas.width - 90, canvas.height - 55, label, () => {
+      const current = this.getCycle();
+      if (!current || current.phase.tag !== "service") return;
+      const updated = movePlayer(current.phase, "kitchen");
+      this.registry.set("dayCycle", { ...current, phase: updated });
+      this.scene.start("KitchenScene");
+    });
+    this.kitchenButtonObjects.push(btn);
+  }
 
-      const servingCustomerId = order.customerId;
-      const servingDishId = prompt.dishId;
-      const price = prompt.sellPrice;
+  private clearKitchenButton(): void {
+    this.kitchenButtonObjects.forEach((obj) => obj.destroy());
+    this.kitchenButtonObjects = [];
+  }
 
-      this.statusObjects.push(
-        addMenuButton(this, centerX, 310, "Serve Dish", () => {
-          const current = this.getCycle();
-          if (
-            current === undefined ||
-            current.phase.tag !== "service" ||
-            current.phase.subPhase.tag !== "serving"
-          )
-            return;
+  // ---------------------------------------------------------------------------
+  // Serving
+  // ---------------------------------------------------------------------------
 
-          this.doServe(current, servingCustomerId, servingDishId, price);
-        })
-      );
-    } else {
-      this.statusObjects.push(
-        this.add
-          .text(centerX, 220, `Need: ${prompt.dishName}`, {
-            fontFamily: "monospace",
-            fontSize: "14px",
-            color: "#f44336",
-            backgroundColor: "#1a1a2e",
-            padding: { x: 12, y: 8 },
-          })
-          .setOrigin(0.5)
-      );
+  /** Serve from pre-prepped inventory (bypasses kitchen orderUp). */
+  private doServe(tableId: number, custId: CustomerId, dishId: ItemId, price: number): void {
+    const cycle = this.getCycle();
+    if (!cycle || cycle.phase.tag !== "service") return;
 
-      this.statusObjects.push(
-        this.add
-          .text(centerX, 260, "Dish not in inventory!", {
-            fontFamily: "monospace",
-            fontSize: "11px",
-            color: "#888899",
-            backgroundColor: "#1a1a2e",
-            padding: { x: 8, y: 4 },
-          })
-          .setOrigin(0.5)
-      );
+    this.removeFromInventory(dishId);
+    this.doAnimateServe(tableId);
+
+    const updated = serveDirectFromInventory(cycle.phase, tableId, price);
+    this.registry.set("dayCycle", { ...cycle, phase: updated });
+    // Force refresh of buttons
+    if (this.tableActionStates[tableId]) this.tableActionStates[tableId] = "";
+  }
+
+  /** Serve from kitchen orderUp. */
+  private doServeFromOrderUp(tableId: number, custId: CustomerId, dishId: ItemId, price: number): void {
+    const cycle = this.getCycle();
+    if (!cycle || cycle.phase.tag !== "service") return;
+
+    this.removeFromInventory(dishId);
+    this.doAnimateServe(tableId);
+
+    const updated = serveOrder(cycle.phase, tableId, price);
+    this.registry.set("dayCycle", { ...cycle, phase: updated });
+    if (this.tableActionStates[tableId]) this.tableActionStates[tableId] = "";
+  }
+
+  private doAnimateServe(tableId: number): void {
+    if (tableId < this.tableSprites.length) {
+      animateServe(this, this.tableSprites[tableId], this.tableCells[tableId]);
     }
   }
 
-  private showWaitingStatus(message: string): void {
-    if (
-      this.statusObjects.length > 0 &&
-      this.statusObjects.some(
-        (obj) =>
-          obj instanceof Phaser.GameObjects.Text &&
-          (obj as Phaser.GameObjects.Text).text.includes("Waiting")
-      )
-    )
-      return;
-
-    this.clearStatus();
-    const centerX = canvas.width / 2;
-    this.statusObjects.push(
-      this.add
-        .text(centerX, 240, message, {
-          fontFamily: "monospace",
-          fontSize: "14px",
-          color: "#888899",
-          backgroundColor: "#1a1a2e",
-          padding: { x: 12, y: 8 },
-        })
-        .setOrigin(0.5)
-    );
+  private removeFromInventory(dishId: ItemId): void {
+    const inv = this.getInventory();
+    const afterRemove = removeItems(inv, dishId, 1);
+    if (afterRemove !== undefined) {
+      this.registry.set("inventory", afterRemove);
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // Day end
+  // ---------------------------------------------------------------------------
 
   private showDayEnd(cycle: DayCycle): void {
     if (this.dayEndShown) return;
@@ -579,9 +544,9 @@ export class RestaurantScene extends Phaser.Scene {
     if (cycle.phase.tag !== "day_end") return;
 
     this.customerSpawnTimer?.destroy();
-    this.clearStatus();
+    this.clearAllTableButtons();
+    this.clearKitchenButton();
 
-    // Use day-end view model
     const type = getActiveRestaurantType(this.registry);
     const currentUnlocked = getActiveUnlockedCount(this.registry);
     const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
@@ -596,7 +561,6 @@ export class RestaurantScene extends Phaser.Scene {
       recordDayResult(lb, { served: vm.customersServed, earnings: vm.earnings })
     );
 
-    // Persist unlock to save slot
     if (vm.dishUnlock !== undefined) {
       const store: SaveStore | undefined = this.registry.get("saveStore");
       const activeSlotId: SlotId | undefined = this.registry.get("activeSlotId");
@@ -684,7 +648,6 @@ export class RestaurantScene extends Phaser.Scene {
         .setOrigin(0.5);
       yPos += 28;
 
-      // Show dish sprite if available
       if (this.textures.exists(vm.dishUnlock.dishSpriteKey)) {
         this.add
           .image(centerX, yPos, vm.dishUnlock.dishSpriteKey)
@@ -703,53 +666,9 @@ export class RestaurantScene extends Phaser.Scene {
     });
   }
 
-  /** Serve a dish: animate, remove from inventory, update phase, clear status. */
-  private doServe(
-    cycle: DayCycle,
-    custId: CustomerId,
-    dishId: ItemId,
-    price: number
-  ): void {
-    if (cycle.phase.tag !== "service") return;
-
-    this.doAnimateServe(custId);
-    this.removeFromInventory(dishId);
-
-    // Fast-track through cooking->serving->finishServing if needed
-    const phase = cycle.phase;
-    let served: ServicePhase;
-    if (phase.subPhase.tag === "taking_order") {
-      const cooking = beginCooking(phase, orderId(crypto.randomUUID()), dishId);
-      const serving = finishCooking(cooking);
-      served = finishServing(serving, price);
-    } else {
-      served = finishServing(phase, price);
-    }
-    const updatedLayout = unseatCustomer(served.tableLayout, custId);
-    this.registry.set("dayCycle", {
-      ...cycle,
-      phase: { ...served, tableLayout: updatedLayout },
-    });
-    this.clearStatus();
-  }
-
-  private doAnimateServe(custId: CustomerId): void {
-    const cycle = this.getCycle();
-    if (cycle === undefined || cycle.phase.tag !== "service") return;
-    const tableId = cycle.phase.tableLayout.tables.findIndex(
-      (t) => t.customerId === custId
-    );
-    if (tableId < 0 || tableId >= this.tableSprites.length) return;
-    animateServe(this, this.tableSprites[tableId], this.tableCells[tableId]);
-  }
-
-  private removeFromInventory(dishId: ItemId): void {
-    const inv = this.getInventory();
-    const afterRemove = removeItems(inv, dishId, 1);
-    if (afterRemove !== undefined) {
-      this.registry.set("inventory", afterRemove);
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Rendering helpers
+  // ---------------------------------------------------------------------------
 
   private renderCoinHud(): void {
     this.coinHudGraphics?.destroy();
@@ -772,20 +691,5 @@ export class RestaurantScene extends Phaser.Scene {
       { positions: this.tableCells, sprites: this.tableSprites },
       this.bubbleObjects
     );
-  }
-
-  private addDishSprite(x: number, y: number, dishId: string): void {
-    const spriteKey = `item-${dishId}`;
-    if (this.textures.exists(spriteKey)) {
-      const sprite = this.add
-        .image(x, y, spriteKey)
-        .setDisplaySize(56, 56);
-      this.statusObjects.push(sprite);
-    }
-  }
-
-  private clearStatus(): void {
-    this.statusObjects.forEach((obj) => obj.destroy());
-    this.statusObjects = [];
   }
 }

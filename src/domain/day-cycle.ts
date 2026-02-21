@@ -1,5 +1,13 @@
 import type { CustomerId, OrderId, ItemId } from "./branded";
-import { type TableLayout, createTableLayout, unseatCustomer } from "./tables";
+import {
+  type KitchenServiceState,
+  type KitchenOrder,
+  createKitchenServiceState,
+  addOrderToKitchen,
+  pickupFromOrderUp,
+  tickKitchenStations,
+  isKitchenIdle,
+} from "./kitchen-service";
 
 export interface Customer {
   readonly id: CustomerId;
@@ -27,14 +35,29 @@ export interface Order {
   readonly dishId: ItemId;
 }
 
-// Service sub-phases (discriminated union)
-export type ServiceSubPhase =
-  | { readonly tag: "waiting_for_customer" }
-  | { readonly tag: "taking_order"; readonly customer: Customer }
-  | { readonly tag: "cooking"; readonly order: Order }
-  | { readonly tag: "serving"; readonly order: Order };
+// ---------------------------------------------------------------------------
+// Table state (discriminated union per table)
+// ---------------------------------------------------------------------------
 
+export type TableState =
+  | { readonly tag: "empty" }
+  | { readonly tag: "customer_waiting"; readonly customer: Customer }
+  | { readonly tag: "order_pending"; readonly customer: Customer }
+  | {
+      readonly tag: "in_kitchen";
+      readonly customer: Customer;
+      readonly orderId: OrderId;
+    }
+  | {
+      readonly tag: "ready_to_serve";
+      readonly customer: Customer;
+      readonly orderId: OrderId;
+    };
+
+// ---------------------------------------------------------------------------
 // Day phases (discriminated union)
+// ---------------------------------------------------------------------------
+
 export type Phase =
   | {
       readonly tag: "grocery";
@@ -50,12 +73,13 @@ export type Phase =
       readonly tag: "service";
       readonly remainingMs: number;
       readonly durationMs: number;
-      readonly subPhase: ServiceSubPhase;
+      readonly tables: ReadonlyArray<TableState>;
+      readonly kitchen: KitchenServiceState;
+      readonly playerLocation: "floor" | "kitchen";
       readonly customersServed: number;
       readonly customersLost: number;
       readonly earnings: number;
       readonly customerQueue: ReadonlyArray<Customer>;
-      readonly tableLayout: TableLayout;
     }
   | {
       readonly tag: "day_end";
@@ -160,12 +184,13 @@ export const advanceToService = (
     tag: "service",
     remainingMs: durationMs,
     durationMs,
-    subPhase: { tag: "waiting_for_customer" },
+    tables: Array.from({ length: tables }, (): TableState => ({ tag: "empty" })),
+    kitchen: createKitchenServiceState(),
+    playerLocation: "floor",
     customersServed: 0,
     customersLost: 0,
     earnings: 0,
     customerQueue: [],
-    tableLayout: createTableLayout(tables),
   },
 });
 
@@ -193,123 +218,297 @@ export const advanceToNextDay = (
 ): DayCycle => createDayCycle(cycle.day + 1, durations);
 
 // ---------------------------------------------------------------------------
-// Service sub-phase transitions
+// Service phase: customer management
 // ---------------------------------------------------------------------------
 
+/** Seat a customer at the first empty table, or queue them if all tables full. */
 export const enqueueCustomer = (
   phase: ServicePhase,
   customer: Customer
-): ServicePhase => ({
-  ...phase,
-  customerQueue: [...phase.customerQueue, customer],
-});
-
-export const beginTakingOrder = (
-  phase: ServicePhase
-): ServicePhase | undefined => {
-  if (phase.subPhase.tag !== "waiting_for_customer") return undefined;
-  if (phase.customerQueue.length === 0) return undefined;
-  const [next, ...rest] = phase.customerQueue;
-  return {
-    ...phase,
-    subPhase: { tag: "taking_order", customer: next },
-    customerQueue: rest,
-  };
-};
-
-export const beginCooking = (
-  phase: ServicePhase,
-  id: OrderId,
-  dishId: ItemId
 ): ServicePhase => {
-  if (phase.subPhase.tag !== "taking_order") return phase;
-  return {
-    ...phase,
-    subPhase: {
-      tag: "cooking",
-      order: { id, customerId: phase.subPhase.customer.id, dishId },
-    },
-  };
-};
-
-export const finishCooking = (phase: ServicePhase): ServicePhase => {
-  if (phase.subPhase.tag !== "cooking") return phase;
-  return {
-    ...phase,
-    subPhase: { tag: "serving", order: phase.subPhase.order },
-  };
-};
-
-export const activeCustomerId = (phase: ServicePhase): CustomerId | undefined => {
-  switch (phase.subPhase.tag) {
-    case "taking_order":
-      return phase.subPhase.customer.id;
-    case "cooking":
-      return phase.subPhase.order.customerId;
-    case "serving":
-      return phase.subPhase.order.customerId;
-    case "waiting_for_customer":
-      return undefined;
-    default: {
-      const _exhaustive: never = phase.subPhase;
-      return _exhaustive;
-    }
+  const emptyIdx = phase.tables.findIndex((t) => t.tag === "empty");
+  if (emptyIdx >= 0) {
+    return {
+      ...phase,
+      tables: phase.tables.map((t, i) =>
+        i === emptyIdx
+          ? ({ tag: "customer_waiting", customer } as TableState)
+          : t
+      ),
+    };
   }
+  return { ...phase, customerQueue: [...phase.customerQueue, customer] };
 };
 
-export const abandonOrder = (phase: ServicePhase): ServicePhase => {
-  if (phase.subPhase.tag === "taking_order") {
-    return { ...phase, subPhase: { tag: "waiting_for_customer" } };
-  }
-  if (phase.subPhase.tag === "cooking") {
-    return { ...phase, subPhase: { tag: "waiting_for_customer" } };
-  }
-  return phase;
-};
-
-export const finishServing = (
+/**
+ * Serve a customer directly from pre-prepped inventory.
+ * Valid from customer_waiting or order_pending states (dish already available).
+ * Bypasses the kitchen stations entirely.
+ */
+export const serveDirectFromInventory = (
   phase: ServicePhase,
+  tableId: number,
   dishEarnings: number
 ): ServicePhase => {
-  if (phase.subPhase.tag !== "serving") return phase;
+  const table = phase.tables[tableId];
+  if (
+    table === undefined ||
+    (table.tag !== "customer_waiting" && table.tag !== "order_pending")
+  )
+    return phase;
+
+  const tablesWithEmpty = phase.tables.map((t, i) =>
+    i === tableId ? ({ tag: "empty" } as TableState) : t
+  );
+  const { tables: seatedTables, customerQueue: newQueue } = seatFromQueue(
+    tablesWithEmpty,
+    phase.customerQueue
+  );
+
   return {
     ...phase,
-    subPhase: { tag: "waiting_for_customer" },
+    tables: seatedTables,
+    customerQueue: newQueue,
     customersServed: phase.customersServed + 1,
     earnings: phase.earnings + dishEarnings,
   };
 };
 
+/** Take an order at a table: customer_waiting → order_pending. */
+export const takeOrder = (
+  phase: ServicePhase,
+  tableId: number
+): ServicePhase => {
+  const table = phase.tables[tableId];
+  if (table === undefined || table.tag !== "customer_waiting") return phase;
+  return {
+    ...phase,
+    tables: phase.tables.map((t, i) =>
+      i === tableId
+        ? ({ tag: "order_pending", customer: table.customer } as TableState)
+        : t
+    ),
+  };
+};
+
+/** Send an order to the kitchen: order_pending → in_kitchen. Adds to kitchen.pendingOrders. */
+export const sendOrderToKitchen = (
+  phase: ServicePhase,
+  tableId: number,
+  oid: OrderId
+): ServicePhase => {
+  const table = phase.tables[tableId];
+  if (table === undefined || table.tag !== "order_pending") return phase;
+
+  const kitchenOrder: KitchenOrder = {
+    id: oid,
+    customerId: table.customer.id,
+    dishId: table.customer.dishId,
+  };
+
+  return {
+    ...phase,
+    tables: phase.tables.map((t, i) =>
+      i === tableId
+        ? ({
+            tag: "in_kitchen",
+            customer: table.customer,
+            orderId: oid,
+          } as TableState)
+        : t
+    ),
+    kitchen: addOrderToKitchen(phase.kitchen, kitchenOrder),
+  };
+};
+
+/** Called when an order appears in kitchen.orderUp: find matching in_kitchen table → ready_to_serve. */
+export const notifyOrderReady = (
+  phase: ServicePhase,
+  oid: OrderId
+): ServicePhase => {
+  const tableIdx = phase.tables.findIndex(
+    (t) => t.tag === "in_kitchen" && t.orderId === oid
+  );
+  if (tableIdx < 0) return phase;
+  const table = phase.tables[tableIdx];
+  if (table.tag !== "in_kitchen") return phase;
+  return {
+    ...phase,
+    tables: phase.tables.map((t, i) =>
+      i === tableIdx
+        ? ({
+            tag: "ready_to_serve",
+            customer: table.customer,
+            orderId: oid,
+          } as TableState)
+        : t
+    ),
+  };
+};
+
+/** Seat the next queued customer at a newly-emptied table, if available. */
+const seatFromQueue = (
+  tables: ReadonlyArray<TableState>,
+  queue: ReadonlyArray<Customer>
+): { tables: ReadonlyArray<TableState>; customerQueue: ReadonlyArray<Customer> } => {
+  if (queue.length === 0) return { tables, customerQueue: queue };
+  const emptyIdx = tables.findIndex((t) => t.tag === "empty");
+  if (emptyIdx < 0) return { tables, customerQueue: queue };
+  const [next, ...rest] = queue;
+  return seatFromQueue(
+    tables.map((t, i) =>
+      i === emptyIdx ? ({ tag: "customer_waiting", customer: next } as TableState) : t
+    ),
+    rest
+  );
+};
+
+/** Serve an order: ready_to_serve → empty, update earnings. Also removes from kitchen.orderUp. */
+export const serveOrder = (
+  phase: ServicePhase,
+  tableId: number,
+  dishEarnings: number
+): ServicePhase => {
+  const table = phase.tables[tableId];
+  if (table === undefined || table.tag !== "ready_to_serve") return phase;
+
+  const { orderId: oid } = table;
+  const newKitchen = pickupFromOrderUp(phase.kitchen, oid);
+  const tablesWithEmpty = phase.tables.map((t, i) =>
+    i === tableId ? ({ tag: "empty" } as TableState) : t
+  );
+
+  const { tables: seatedTables, customerQueue: newQueue } = seatFromQueue(
+    tablesWithEmpty,
+    phase.customerQueue
+  );
+
+  return {
+    ...phase,
+    tables: seatedTables,
+    customerQueue: newQueue,
+    kitchen: newKitchen,
+    customersServed: phase.customersServed + 1,
+    earnings: phase.earnings + dishEarnings,
+  };
+};
+
+/** Set the player's current location (floor or kitchen). */
+export const movePlayer = (
+  phase: ServicePhase,
+  location: "floor" | "kitchen"
+): ServicePhase => ({ ...phase, playerLocation: location });
+
 // ---------------------------------------------------------------------------
-// Customer patience
+// Ticking
 // ---------------------------------------------------------------------------
 
+/** Tick patience on all occupied table states. */
 export const tickCustomerPatience = (
   phase: ServicePhase,
   elapsedMs: number
-): ServicePhase => ({
-  ...phase,
-  customerQueue: phase.customerQueue.map((c) => ({
+): ServicePhase => {
+  const tickCustomer = (c: Customer): Customer => ({
     ...c,
     patienceMs: Math.max(0, c.patienceMs - elapsedMs),
-  })),
-});
+  });
 
+  return {
+    ...phase,
+    tables: phase.tables.map((t): TableState => {
+      switch (t.tag) {
+        case "customer_waiting":
+          return { ...t, customer: tickCustomer(t.customer) };
+        case "order_pending":
+          return { ...t, customer: tickCustomer(t.customer) };
+        case "in_kitchen":
+          return { ...t, customer: tickCustomer(t.customer) };
+        case "empty":
+        case "ready_to_serve":
+          return t;
+        default: {
+          const _exhaustive: never = t;
+          return _exhaustive;
+        }
+      }
+    }),
+    customerQueue: phase.customerQueue.map((c) => tickCustomer(c)),
+  };
+};
+
+/** Remove customers with expired patience from tables and queue. */
 export const removeExpiredCustomers = (
   phase: ServicePhase
 ): ServicePhase => {
-  const expired = phase.customerQueue.filter((c) => c.patienceMs <= 0);
-  const remaining = phase.customerQueue.filter((c) => c.patienceMs > 0);
-  const updatedLayout = expired.reduce(
-    (layout, c) => unseatCustomer(layout, c.id),
-    phase.tableLayout
+  let customersLost = phase.customersLost;
+  const tables = phase.tables.map((t): TableState => {
+    switch (t.tag) {
+      case "customer_waiting":
+      case "order_pending":
+      case "in_kitchen":
+        if (t.customer.patienceMs <= 0) {
+          customersLost++;
+          return { tag: "empty" };
+        }
+        return t;
+      case "empty":
+      case "ready_to_serve":
+        return t;
+      default: {
+        const _exhaustive: never = t;
+        return _exhaustive;
+      }
+    }
+  });
+
+  const expiredQueue = phase.customerQueue.filter((c) => c.patienceMs <= 0);
+  const remainingQueue = phase.customerQueue.filter((c) => c.patienceMs > 0);
+  customersLost += expiredQueue.length;
+
+  const { tables: seatedTables, customerQueue: newQueue } = seatFromQueue(
+    tables,
+    remainingQueue
   );
+
   return {
     ...phase,
-    customerQueue: remaining,
-    tableLayout: updatedLayout,
-    customersLost: phase.customersLost + expired.length,
+    tables: seatedTables,
+    customerQueue: newQueue,
+    customersLost,
   };
+};
+
+/**
+ * Combined service phase tick:
+ * 1. Tick all customer patience
+ * 2. Remove expired customers
+ * 3. Tick kitchen stations
+ * 4. Notify tables for newly completed orders
+ */
+export const tickServicePhase = (
+  phase: ServicePhase,
+  delta: number
+): ServicePhase => {
+  const prevOrderUpIds = new Set(phase.kitchen.orderUp.map((o) => o.id));
+
+  // 1 + 2: patience + expiry
+  const afterPatience = tickCustomerPatience(phase, delta);
+  const afterExpiry = removeExpiredCustomers(afterPatience);
+
+  // 3: kitchen stations
+  const newKitchen = tickKitchenStations(afterExpiry.kitchen, delta);
+
+  // 4: notify tables for newly completed orders
+  const newOrderIds = newKitchen.orderUp
+    .map((o) => o.id)
+    .filter((id) => !prevOrderUpIds.has(id));
+
+  const phaseWithKitchen = { ...afterExpiry, kitchen: newKitchen };
+
+  return newOrderIds.reduce(
+    (acc, oid) => notifyOrderReady(acc, oid),
+    phaseWithKitchen
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -317,7 +516,8 @@ export const removeExpiredCustomers = (
 // ---------------------------------------------------------------------------
 
 export const isRestaurantIdle = (phase: ServicePhase): boolean =>
-  phase.subPhase.tag === "waiting_for_customer" &&
+  phase.tables.every((t) => t.tag === "empty") &&
+  isKitchenIdle(phase.kitchen) &&
   phase.customerQueue.length === 0;
 
 export const activeSceneForPhase = (phase: Phase): string => {
@@ -327,7 +527,7 @@ export const activeSceneForPhase = (phase: Phase): string => {
     case "kitchen_prep":
       return "KitchenScene";
     case "service":
-      return phase.subPhase.tag === "cooking"
+      return phase.playerLocation === "kitchen"
         ? "KitchenScene"
         : "RestaurantScene";
     case "day_end":
