@@ -17,7 +17,7 @@
 - **`timerBar.ts`** — `renderTimerBar(scene, ...)` → `TimerBarResult` (graphics + label). `TIMER_COLOR_HEX` maps colors. Re-exports `formatTimeRemaining`.
 - **`panel.ts`** — `renderPanel(scene, spec, appearance?)` draws Phaser rounded rect via domain `resolvePanel`.
 - **`restaurantTypeHelper.ts`** — `getActiveRestaurantType(registry)`, `getActiveUnlockedCount(registry)`, `getActiveDisabledDishes(registry)` (returns `slot.disabledDishes ?? []`). Asset key helpers: `backgroundKey(type, scene)` → `"burger-grocery-bg"`, `tableKey(type)` → `"burger-table"`, plus `*AssetPath` variants.
-- **`saveHelpers.ts`** — `recordSceneEntry(registry, sceneKey)` updates active slot's scene + lastSaved. `recordDayAdvance(registry, day)` updates day.
+- **`saveHelpers.ts`** — `recordSceneEntry(registry, sceneKey)` updates active slot's scene + lastSaved via `patchSlot`. `recordDayAdvance(registry, day)` updates day via `patchSlot`. Both preserve all other slot fields including `disabledDishes`.
 - **`tutorialHint.ts`** — `showTutorialHint(scene, phaseTag)` shows TIP banner on Day 1 only. Auto-fades after 10s.
 - **`notification.ts`** — `showNotification(scene, state, message, color)` renders fade-out alerts ("Customer left!", "Item expired!").
 - **`inventorySidebar.ts`** — `renderInventorySidebar(scene, inventory, oldObjects)` renders right-aligned list with freshness color-coding.
