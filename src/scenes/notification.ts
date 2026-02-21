@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { notificationPos } from "../domain/view/scene-layout";
 
 export interface NotificationState {
   objects: Phaser.GameObjects.GameObject[];
@@ -17,9 +18,8 @@ export const showNotification = (
   state.objects.forEach((obj) => obj.destroy());
   state.objects = [];
 
-  const centerX = scene.scale.width / 2;
   const text = scene.add
-    .text(centerX, scene.scale.height - 30, message, {
+    .text(notificationPos.x, notificationPos.y, message, {
       fontFamily: "monospace",
       fontSize: "14px",
       color,

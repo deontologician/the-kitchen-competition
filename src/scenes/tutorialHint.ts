@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import type { DayCycle } from "../domain/day-cycle";
+import { hintY, hintRegion } from "../domain/view/scene-layout";
 
-const HINT_Y = 530;
 const HINT_BG_ALPHA = 0.92;
 const HINT_DEPTH = 10;
 
@@ -25,21 +25,21 @@ export const showTutorialHint = (
   const hint = PHASE_HINTS[phaseTag];
   if (hint === undefined) return [];
 
-  const centerX = scene.scale.width / 2;
   const objects: Phaser.GameObjects.GameObject[] = [];
 
   // Background bar
   const bg = scene.add.graphics();
   bg.fillStyle(0x0a0a1e, HINT_BG_ALPHA);
-  bg.fillRoundedRect(60, HINT_Y - 14, scene.scale.width - 120, 30, 6);
+  bg.fillRoundedRect(hintRegion.x, hintRegion.y, hintRegion.width, hintRegion.height, 6);
   bg.lineStyle(1, 0x4488cc, 0.6);
-  bg.strokeRoundedRect(60, HINT_Y - 14, scene.scale.width - 120, 30, 6);
+  bg.strokeRoundedRect(hintRegion.x, hintRegion.y, hintRegion.width, hintRegion.height, 6);
   bg.setDepth(HINT_DEPTH);
   objects.push(bg);
 
   // Hint text
+  const textX = hintRegion.x + hintRegion.width / 2;
   const text = scene.add
-    .text(centerX, HINT_Y, `TIP: ${hint}`, {
+    .text(textX, hintY, `TIP: ${hint}`, {
       fontFamily: "monospace",
       fontSize: "11px",
       color: "#88ccff",

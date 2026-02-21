@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { addMenuButton } from "./renderPixelText";
 import { type SlotId, slotId } from "../domain/branded";
+import { canvas, menuStack } from "../domain/view/scene-layout";
 import { type Wallet, createWallet, initialWallet } from "../domain/wallet";
 import { createInventory } from "../domain/inventory";
 import {
@@ -126,19 +127,18 @@ export class TitleScene extends Phaser.Scene {
       this.registry.get("saveStore") ?? createSaveStore();
     const hasSaves = store.slots.length > 0;
 
-    const centerX = this.scale.width / 2;
-    let buttonY = 360;
-    const spacing = 50;
-
+    const buttonCount = 1 + (hasSaves ? 2 : 0);
+    const positions = menuStack(340, buttonCount);
     const menuObjects: Phaser.GameObjects.GameObject[] = [];
+    let idx = 0;
 
     menuObjects.push(
-      addMenuButton(this, centerX, buttonY, "New Game", () => {
+      addMenuButton(this, positions[idx].x, positions[idx].y, "New Game", () => {
         menuObjects.forEach((obj) => obj.destroy());
         this.showRestaurantSelect();
       })
     );
-    buttonY += spacing;
+    idx++;
 
     // Show leaderboard stats if any games played
     const lb: Leaderboard =
@@ -149,7 +149,7 @@ export class TitleScene extends Phaser.Scene {
         `Total: ${lb.totalCustomersServed} served / ${lb.totalDaysPlayed} days`,
       ].join("  |  ");
       this.add
-        .text(centerX, this.scale.height - 40, statsText, {
+        .text(canvas.width / 2, canvas.height - 40, statsText, {
           fontFamily: "monospace",
           fontSize: "9px",
           color: "#88aacc",
@@ -162,7 +162,7 @@ export class TitleScene extends Phaser.Scene {
 
     if (hasSaves) {
       menuObjects.push(
-        addMenuButton(this, centerX, buttonY, "Continue", () => {
+        addMenuButton(this, positions[idx].x, positions[idx].y, "Continue", () => {
           const current: SaveStore =
             this.registry.get("saveStore") ?? createSaveStore();
           const recent = findMostRecent(current);
@@ -174,10 +174,10 @@ export class TitleScene extends Phaser.Scene {
           this.scene.start("GroceryScene");
         })
       );
-      buttonY += spacing;
+      idx++;
 
       menuObjects.push(
-        addMenuButton(this, centerX, buttonY, "Load Game", () => {
+        addMenuButton(this, positions[idx].x, positions[idx].y, "Load Game", () => {
           this.scene.start("LoadGameScene");
         })
       );
@@ -185,10 +185,6 @@ export class TitleScene extends Phaser.Scene {
   }
 
   private showRestaurantSelect(): void {
-    const centerX = this.scale.width / 2;
-    let buttonY = 340;
-    const spacing = 50;
-
     const selectObjects: Phaser.GameObjects.GameObject[] = [];
 
     const types: ReadonlyArray<{
@@ -200,17 +196,18 @@ export class TitleScene extends Phaser.Scene {
       { type: "sushi", label: "Sushi (Hard)" },
     ];
 
-    types.forEach(({ type, label }) => {
+    const positions = menuStack(320, types.length + 1);
+
+    types.forEach(({ type, label }, i) => {
       selectObjects.push(
-        addMenuButton(this, centerX, buttonY, label, () => {
+        addMenuButton(this, positions[i].x, positions[i].y, label, () => {
           this.startNewGame(type);
         })
       );
-      buttonY += spacing;
     });
 
     selectObjects.push(
-      addMenuButton(this, centerX, buttonY, "Back", () => {
+      addMenuButton(this, positions[types.length].x, positions[types.length].y, "Back", () => {
         selectObjects.forEach((obj) => obj.destroy());
         this.showMainMenu();
       })

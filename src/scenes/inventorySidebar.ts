@@ -6,6 +6,7 @@ import {
   itemFreshness,
   type Inventory,
 } from "../domain/inventory";
+import { sidebarAnchor } from "../domain/view/scene-layout";
 
 const freshnessColor = (frac: number): string =>
   frac > 0.5 ? "#ffffff" : frac > 0.25 ? "#ffcc00" : "#ff6644";
@@ -26,8 +27,8 @@ export const renderInventorySidebar = (
     freshMap.set(f.itemId, f.freshness)
   );
 
-  const x = scene.scale.width - 30;
-  let y = 90;
+  const x = sidebarAnchor.x;
+  let y = sidebarAnchor.y;
 
   const dishCounts = counts.filter((c) => {
     const item = findItem(c.itemId);

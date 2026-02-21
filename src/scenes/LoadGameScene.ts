@@ -8,6 +8,7 @@ import {
 } from "../domain/save-slots";
 import { createDayCycle } from "../domain/day-cycle";
 import { createInventory } from "../domain/inventory";
+import { canvas, menuStack } from "../domain/view/scene-layout";
 
 export class LoadGameScene extends Phaser.Scene {
   constructor() {
@@ -16,8 +17,8 @@ export class LoadGameScene extends Phaser.Scene {
 
   create(): void {
     this.add
-      .image(this.scale.width / 2, this.scale.height / 2, "title-bg")
-      .setDisplaySize(this.scale.width, this.scale.height);
+      .image(canvas.width / 2, canvas.height / 2, "title-bg")
+      .setDisplaySize(canvas.width, canvas.height);
 
     const store: SaveStore =
       this.registry.get("saveStore") ?? createSaveStore();
@@ -26,9 +27,8 @@ export class LoadGameScene extends Phaser.Scene {
       (a, b) => b.lastSaved - a.lastSaved
     );
 
-    const centerX = this.scale.width / 2;
-    let buttonY = 160;
-    const spacing = 50;
+    const centerX = canvas.width / 2;
+    const positions = menuStack(140, sorted.length + 1);
 
     this.add
       .text(centerX, 100, "Load Game", {
@@ -38,11 +38,11 @@ export class LoadGameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    sorted.forEach((slot) => {
+    sorted.forEach((slot, i) => {
       addMenuButton(
         this,
-        centerX,
-        buttonY,
+        positions[i].x,
+        positions[i].y,
         formatSlotSummary(slot),
         () => {
           this.registry.set("activeSlotId", slot.id);
@@ -52,10 +52,9 @@ export class LoadGameScene extends Phaser.Scene {
           this.scene.start("GroceryScene");
         }
       );
-      buttonY += spacing;
     });
 
-    addMenuButton(this, centerX, buttonY + 20, "Back", () => {
+    addMenuButton(this, positions[sorted.length].x, positions[sorted.length].y, "Back", () => {
       this.scene.start("TitleScene");
     });
   }

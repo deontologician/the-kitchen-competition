@@ -1,15 +1,11 @@
 import Phaser from "phaser";
-import { renderPixelText } from "./renderPixelText";
+import { renderPixelText, addMenuButton } from "./renderPixelText";
 import {
   initialWallet,
   formatCoins,
   spendCoins,
   type Wallet,
 } from "../domain/wallet";
-import {
-  measureLineWidth,
-  createDefaultLayoutConfig,
-} from "../domain/pixel-font";
 import { recordSceneEntry } from "./saveHelpers";
 import { showTutorialHint } from "./tutorialHint";
 import { renderTimerBar } from "./timerBar";
@@ -36,14 +32,17 @@ import {
 } from "../domain/inventory";
 import { timerBarVM } from "../domain/view/timer-vm";
 import { groceryVM, type GroceryItemVM } from "../domain/view/grocery-vm";
-
-// Grid layout constants
-const GRID_LEFT = 60;
-const GRID_TOP = 150;
-const CELL_W = 90;
-const CELL_H = 100;
-const COLS = 8;
-const ICON_SIZE = 48;
+import {
+  canvas,
+  timerBar,
+  sceneTitleY,
+  skipButtonPos,
+  coinHudPos,
+  groceryGrid,
+  GROCERY_CELL_W,
+  GROCERY_CELL_H,
+  GROCERY_ICON_SIZE,
+} from "../domain/view/scene-layout";
 
 export class GroceryScene extends Phaser.Scene {
   private timerGraphics?: Phaser.GameObjects.Graphics;
@@ -91,7 +90,7 @@ export class GroceryScene extends Phaser.Scene {
       marginRight: 40,
     });
 
-    renderPixelText(this, ["GROCERY STORE"], { centerY: 110 });
+    renderPixelText(this, ["GROCERY STORE"], { centerY: sceneTitleY });
 
     // Build grocery item list (only ingredients for unlocked dishes)
     const unlockedCount = getActiveUnlockedCount(this.registry);
@@ -103,6 +102,15 @@ export class GroceryScene extends Phaser.Scene {
     this.renderItemGrid();
     this.renderCoinHud();
     showTutorialHint(this, "grocery");
+
+    // Skip-ahead button
+    addMenuButton(this, skipButtonPos.x, skipButtonPos.y, "Done Shopping \u25B6", () => {
+      const current: DayCycle | undefined = this.registry.get("dayCycle");
+      if (current === undefined || current.phase.tag !== "grocery") return;
+      const next = advanceToKitchenPrep(current, defaultDurations.kitchenPrepMs);
+      this.registry.set("dayCycle", next);
+      this.scene.start("KitchenScene");
+    });
 
     this.input.keyboard!.on("keydown-ESC", () => {
       this.scene.pause();
@@ -123,9 +131,12 @@ export class GroceryScene extends Phaser.Scene {
     this.timerLabel?.destroy();
     const vm = timerBarVM(updated.phase, updated.day);
     if (vm !== undefined) {
-      const result = renderTimerBar(this, 100, 50, 600, 24, vm.fraction, {
-        label: vm.label,
-      });
+      const result = renderTimerBar(
+        this,
+        timerBar.x, timerBar.y, timerBar.width, timerBar.height,
+        vm.fraction,
+        { label: vm.label }
+      );
       this.timerGraphics = result.graphics;
       this.timerLabel = result.label;
     }
@@ -152,22 +163,20 @@ export class GroceryScene extends Phaser.Scene {
     const unlockedCount = getActiveUnlockedCount(this.registry);
     const vm = groceryVM(wallet, inv, type, unlockedCount);
 
-    vm.items.forEach((item, i) => {
-      const col = i % COLS;
-      const row = Math.floor(i / COLS);
-      const x = GRID_LEFT + col * CELL_W + CELL_W / 2;
-      const y = GRID_TOP + row * CELL_H + CELL_H / 2;
+    const cells = groceryGrid(vm.items.length);
 
-      const container = this.add.container(x, y);
+    vm.items.forEach((item, i) => {
+      const cell = cells[i];
+      const container = this.add.container(cell.x, cell.y);
 
       // Background card
       const bg = this.add.graphics();
       bg.fillStyle(0x1a1a2e, 0.85);
       bg.fillRoundedRect(
-        -CELL_W / 2 + 4,
-        -CELL_H / 2 + 4,
-        CELL_W - 8,
-        CELL_H - 8,
+        -GROCERY_CELL_W / 2 + 4,
+        -GROCERY_CELL_H / 2 + 4,
+        GROCERY_CELL_W - 8,
+        GROCERY_CELL_H - 8,
         6
       );
       container.add(bg);
@@ -176,7 +185,7 @@ export class GroceryScene extends Phaser.Scene {
       if (this.textures.exists(item.spriteKey)) {
         const sprite = this.add
           .image(0, -14, item.spriteKey)
-          .setDisplaySize(ICON_SIZE, ICON_SIZE);
+          .setDisplaySize(GROCERY_ICON_SIZE, GROCERY_ICON_SIZE);
         container.add(sprite);
       }
 
@@ -203,7 +212,7 @@ export class GroceryScene extends Phaser.Scene {
 
       // Count badge (how many in inventory)
       const countText = this.add
-        .text(CELL_W / 2 - 12, -CELL_H / 2 + 8, item.count > 0 ? `${item.count}` : "", {
+        .text(GROCERY_CELL_W / 2 - 12, -GROCERY_CELL_H / 2 + 8, item.count > 0 ? `${item.count}` : "", {
           fontFamily: "monospace",
           fontSize: "11px",
           color: "#f5a623",
@@ -216,7 +225,7 @@ export class GroceryScene extends Phaser.Scene {
 
       // Make the whole cell interactive
       const hitZone = this.add
-        .zone(0, 0, CELL_W - 8, CELL_H - 8)
+        .zone(0, 0, GROCERY_CELL_W - 8, GROCERY_CELL_H - 8)
         .setInteractive({ useHandCursor: true });
       container.add(hitZone);
 
@@ -224,10 +233,10 @@ export class GroceryScene extends Phaser.Scene {
         bg.clear();
         bg.fillStyle(0x2a2a4e, 0.95);
         bg.fillRoundedRect(
-          -CELL_W / 2 + 4,
-          -CELL_H / 2 + 4,
-          CELL_W - 8,
-          CELL_H - 8,
+          -GROCERY_CELL_W / 2 + 4,
+          -GROCERY_CELL_H / 2 + 4,
+          GROCERY_CELL_W - 8,
+          GROCERY_CELL_H - 8,
           6
         );
       });
@@ -236,10 +245,10 @@ export class GroceryScene extends Phaser.Scene {
         bg.clear();
         bg.fillStyle(0x1a1a2e, 0.85);
         bg.fillRoundedRect(
-          -CELL_W / 2 + 4,
-          -CELL_H / 2 + 4,
-          CELL_W - 8,
-          CELL_H - 8,
+          -GROCERY_CELL_W / 2 + 4,
+          -GROCERY_CELL_H / 2 + 4,
+          GROCERY_CELL_W - 8,
+          GROCERY_CELL_H - 8,
           6
         );
       });
@@ -274,13 +283,9 @@ export class GroceryScene extends Phaser.Scene {
     this.coinHudObjects = [];
 
     const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
-    const coinText = formatCoins(wallet);
-    const config = createDefaultLayoutConfig();
-    const textWidth = measureLineWidth(coinText, config) * config.pixelSize;
 
-    // Use a simple Phaser text for the HUD so we can track and destroy it
     const hud = this.add
-      .text(this.scale.width - 20, 20, `$${wallet.coins}`, {
+      .text(coinHudPos.x, coinHudPos.y, `$${wallet.coins}`, {
         fontFamily: "monospace",
         fontSize: "18px",
         color: "#f5a623",

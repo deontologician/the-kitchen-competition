@@ -26,6 +26,7 @@ import {
   defaultDurations,
   createDayCycle,
 } from "../domain/day-cycle";
+import { canvas, menuStack } from "../domain/view/scene-layout";
 
 export class PauseScene extends Phaser.Scene {
   private callerScene = "";
@@ -42,7 +43,7 @@ export class PauseScene extends Phaser.Scene {
     // Dark overlay
     const overlay = this.add.graphics();
     overlay.fillStyle(0x000000, 0.75);
-    overlay.fillRect(0, 0, this.scale.width, this.scale.height);
+    overlay.fillRect(0, 0, canvas.width, canvas.height);
 
     // Esc to resume
     this.input.keyboard!.on("keydown-ESC", () => this.resume());
@@ -63,49 +64,43 @@ export class PauseScene extends Phaser.Scene {
   private showMainMenu(): void {
     this.clearMenu();
 
-    const centerX = this.scale.width / 2;
-    let y = 200;
-    const spacing = 50;
+    const centerX = canvas.width / 2;
+    const positions = menuStack(240, 5);
 
     // Title
     this.menuObjects.push(
       this.add
-        .text(centerX, y, "PAUSED", {
+        .text(centerX, 200, "PAUSED", {
           fontFamily: "monospace",
           fontSize: "24px",
           color: "#f5a623",
         })
         .setOrigin(0.5)
     );
-    y += 60;
 
     // Resume
     this.menuObjects.push(
-      addMenuButton(this, centerX, y, "Resume", () => this.resume())
+      addMenuButton(this, positions[0].x, positions[0].y, "Resume", () => this.resume())
     );
-    y += spacing;
 
     // Save
     this.menuObjects.push(
-      addMenuButton(this, centerX, y, "Save", () => this.saveGame())
+      addMenuButton(this, positions[1].x, positions[1].y, "Save", () => this.saveGame())
     );
-    y += spacing;
 
     // Load Game
     this.menuObjects.push(
-      addMenuButton(this, centerX, y, "Load Game", () => this.showLoadMenu())
+      addMenuButton(this, positions[2].x, positions[2].y, "Load Game", () => this.showLoadMenu())
     );
-    y += spacing;
 
     // Debug
     this.menuObjects.push(
-      addMenuButton(this, centerX, y, "Debug", () => this.showDebugMenu())
+      addMenuButton(this, positions[3].x, positions[3].y, "Debug", () => this.showDebugMenu())
     );
-    y += spacing;
 
     // Quit to Title
     this.menuObjects.push(
-      addMenuButton(this, centerX, y, "Quit to Title", () => {
+      addMenuButton(this, positions[4].x, positions[4].y, "Quit to Title", () => {
         this.scene.stop(this.callerScene);
         this.scene.start("TitleScene");
         this.scene.stop();
@@ -134,7 +129,7 @@ export class PauseScene extends Phaser.Scene {
     this.registry.set("saveStore", updateSlot(store, updated));
 
     // Brief "Saved!" feedback
-    const centerX = this.scale.width / 2;
+    const centerX = canvas.width / 2;
     const feedback = this.add
       .text(centerX, 160, "Saved!", {
         fontFamily: "monospace",
@@ -156,27 +151,28 @@ export class PauseScene extends Phaser.Scene {
       (a, b) => b.lastSaved - a.lastSaved
     );
 
-    const centerX = this.scale.width / 2;
-    let y = 200;
-    const spacing = 50;
+    const centerX = canvas.width / 2;
+    const itemCount = Math.max(sorted.length, 1) + 1; // slots (or "no slots" placeholder) + Back
+    const positions = menuStack(240, itemCount);
 
     this.menuObjects.push(
       this.add
-        .text(centerX, y, "LOAD GAME", {
+        .text(centerX, 200, "LOAD GAME", {
           fontFamily: "monospace",
           fontSize: "24px",
           color: "#f5a623",
         })
         .setOrigin(0.5)
     );
-    y += 60;
+
+    let idx = 0;
 
     sorted.forEach((slot: SaveSlot) => {
       this.menuObjects.push(
         addMenuButton(
           this,
-          centerX,
-          y,
+          positions[idx].x,
+          positions[idx].y,
           formatSlotSummary(slot),
           () => {
             this.registry.set("activeSlotId", slot.id);
@@ -188,48 +184,46 @@ export class PauseScene extends Phaser.Scene {
           }
         )
       );
-      y += spacing;
+      idx++;
     });
 
     if (sorted.length === 0) {
       this.menuObjects.push(
         this.add
-          .text(centerX, y, "No save slots found", {
+          .text(positions[idx].x, positions[idx].y, "No save slots found", {
             fontFamily: "monospace",
             fontSize: "14px",
             color: "#888899",
           })
           .setOrigin(0.5)
       );
-      y += spacing;
+      idx++;
     }
 
     this.menuObjects.push(
-      addMenuButton(this, centerX, y + 10, "Back", () => this.showMainMenu())
+      addMenuButton(this, positions[idx].x, positions[idx].y, "Back", () => this.showMainMenu())
     );
   }
 
   private showDebugMenu(): void {
     this.clearMenu();
 
-    const centerX = this.scale.width / 2;
-    let y = 200;
-    const spacing = 50;
+    const centerX = canvas.width / 2;
+    const positions = menuStack(240, 3);
 
     this.menuObjects.push(
       this.add
-        .text(centerX, y, "DEBUG", {
+        .text(centerX, 200, "DEBUG", {
           fontFamily: "monospace",
           fontSize: "24px",
           color: "#f5a623",
         })
         .setOrigin(0.5)
     );
-    y += 60;
 
     // Skip Phase
     this.menuObjects.push(
-      addMenuButton(this, centerX, y, "Skip Phase", () => {
+      addMenuButton(this, positions[0].x, positions[0].y, "Skip Phase", () => {
         const cycle: DayCycle | undefined = this.registry.get("dayCycle");
         if (cycle === undefined) return;
 
@@ -259,11 +253,10 @@ export class PauseScene extends Phaser.Scene {
         this.scene.stop();
       })
     );
-    y += spacing;
 
     // Add 50 Coins
     this.menuObjects.push(
-      addMenuButton(this, centerX, y, "Add 50 Coins", () => {
+      addMenuButton(this, positions[1].x, positions[1].y, "Add 50 Coins", () => {
         const wallet: Wallet =
           this.registry.get("wallet") ?? initialWallet;
         this.registry.set("wallet", addCoins(wallet, 50));
@@ -279,11 +272,10 @@ export class PauseScene extends Phaser.Scene {
         this.time.delayedCall(1_500, () => feedback.destroy());
       })
     );
-    y += spacing;
 
     // Back
     this.menuObjects.push(
-      addMenuButton(this, centerX, y, "Back", () => this.showMainMenu())
+      addMenuButton(this, positions[2].x, positions[2].y, "Back", () => this.showMainMenu())
     );
   }
 }

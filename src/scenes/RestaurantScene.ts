@@ -77,12 +77,13 @@ import {
 import { timerBarVM } from "../domain/view/timer-vm";
 import { restaurantVM } from "../domain/view/restaurant-vm";
 import { dayEndVM } from "../domain/view/day-end-vm";
-
-const TABLE_SIZE = 140;
-const TABLE_POSITIONS: ReadonlyArray<{ readonly x: number; readonly y: number }> = [
-  { x: 180, y: 290 }, { x: 400, y: 290 }, { x: 620, y: 290 },
-  { x: 180, y: 460 }, { x: 400, y: 460 }, { x: 620, y: 460 },
-];
+import {
+  canvas,
+  timerBar,
+  restaurantTitleY,
+  tablePositions,
+  TABLE_SIZE,
+} from "../domain/view/scene-layout";
 
 export class RestaurantScene extends Phaser.Scene {
   private timerGraphics?: Phaser.GameObjects.Graphics;
@@ -95,6 +96,7 @@ export class RestaurantScene extends Phaser.Scene {
   private tableSprites: Phaser.GameObjects.Image[] = [];
   private customersSpawned = 0;
   private notifications: NotificationState = createNotificationState();
+  private tableCells: ReadonlyArray<{ readonly x: number; readonly y: number }> = [];
 
   constructor() {
     super("RestaurantScene");
@@ -141,13 +143,14 @@ export class RestaurantScene extends Phaser.Scene {
         ? cycle.phase.tableLayout.tables.length
         : 4;
 
-    TABLE_POSITIONS.slice(0, numTables).forEach((pos) => {
+    this.tableCells = tablePositions(numTables);
+    this.tableCells.forEach((pos) => {
       const sprite = this.add.image(pos.x, pos.y, tKey).setDisplaySize(TABLE_SIZE, TABLE_SIZE);
       this.tableSprites.push(sprite);
     });
 
     renderPanel(this, { marginTop: 80, marginBottom: 40, marginLeft: 40, marginRight: 40 }, { fillAlpha: 0.35 });
-    renderPixelText(this, ["RESTAURANT"], { centerY: 120 });
+    renderPixelText(this, ["RESTAURANT"], { centerY: restaurantTitleY });
     this.renderCoinHud();
 
     this.input.keyboard!.on("keydown-ESC", () => {
@@ -236,9 +239,12 @@ export class RestaurantScene extends Phaser.Scene {
     this.timerLabel?.destroy();
     const timerVM = timerBarVM(servicePhase, cycle.day);
     if (timerVM !== undefined) {
-      const result = renderTimerBar(this, 100, 50, 600, 24, timerVM.fraction, {
-        label: timerVM.label,
-      });
+      const result = renderTimerBar(
+        this,
+        timerBar.x, timerBar.y, timerBar.width, timerBar.height,
+        timerVM.fraction,
+        { label: timerVM.label }
+      );
       this.timerGraphics = result.graphics;
       this.timerLabel = result.label;
     }
@@ -336,7 +342,7 @@ export class RestaurantScene extends Phaser.Scene {
     if (rvm.actionPrompt.tag !== "taking_order") return;
 
     const prompt = rvm.actionPrompt;
-    const centerX = this.scale.width / 2;
+    const centerX = canvas.width / 2;
     const customer = cycle.phase.subPhase.customer;
 
     this.statusObjects.push(
@@ -463,7 +469,7 @@ export class RestaurantScene extends Phaser.Scene {
       return;
 
     this.clearStatus();
-    const centerX = this.scale.width / 2;
+    const centerX = canvas.width / 2;
     const order = cycle.phase.subPhase.order;
 
     if (prompt.hasDish) {
@@ -537,7 +543,7 @@ export class RestaurantScene extends Phaser.Scene {
       return;
 
     this.clearStatus();
-    const centerX = this.scale.width / 2;
+    const centerX = canvas.width / 2;
     this.statusObjects.push(
       this.add
         .text(centerX, 240, message, {
@@ -595,12 +601,12 @@ export class RestaurantScene extends Phaser.Scene {
       }
     }
 
-    const centerX = this.scale.width / 2;
-    const centerY = this.scale.height / 2;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
 
     const overlay = this.add.graphics();
     overlay.fillStyle(0x000000, 0.7);
-    overlay.fillRect(0, 0, this.scale.width, this.scale.height);
+    overlay.fillRect(0, 0, canvas.width, canvas.height);
 
     this.add
       .text(centerX, centerY - 80, `DAY ${vm.day} COMPLETE`, {
@@ -717,7 +723,7 @@ export class RestaurantScene extends Phaser.Scene {
       (t) => t.customerId === custId
     );
     if (tableId < 0 || tableId >= this.tableSprites.length) return;
-    animateServe(this, this.tableSprites[tableId], TABLE_POSITIONS[tableId]);
+    animateServe(this, this.tableSprites[tableId], this.tableCells[tableId]);
   }
 
   private removeFromInventory(dishId: ItemId): void {
@@ -743,7 +749,7 @@ export class RestaurantScene extends Phaser.Scene {
     this.bubbleObjects = renderTableOverlays(
       this,
       phase,
-      { positions: TABLE_POSITIONS, sprites: this.tableSprites },
+      { positions: this.tableCells, sprites: this.tableSprites },
       this.bubbleObjects
     );
   }

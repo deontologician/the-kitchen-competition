@@ -41,17 +41,18 @@ import {
   type ActiveRecipe,
   type RecipeVM,
 } from "../domain/view/kitchen-vm";
-
-// Layout constants
-const RECIPE_LIST_LEFT = 50;
-const RECIPE_LIST_TOP = 140;
-const RECIPE_ROW_H = 56;
-const RECIPE_WIDTH = 340;
-const INV_LEFT = 430;
-const INV_TOP = 140;
-const INV_COL_W = 90;
-const INV_ROW_H = 30;
-const ICON_SIZE = 36;
+import {
+  timerBar,
+  sceneTitleY,
+  skipButtonPos,
+  recipeRegion,
+  recipeStack,
+  kitchenInvRegion,
+  RECIPE_ROW_H,
+  RECIPE_ICON_SIZE,
+  KITCHEN_INV_COL_W,
+  KITCHEN_INV_ROW_H,
+} from "../domain/view/scene-layout";
 
 export class KitchenScene extends Phaser.Scene {
   private timerGraphics?: Phaser.GameObjects.Graphics;
@@ -60,8 +61,8 @@ export class KitchenScene extends Phaser.Scene {
   private recipeButtons: Phaser.GameObjects.Container[] = [];
   private invObjects: Phaser.GameObjects.GameObject[] = [];
   private activeRecipe?: RecipeStep;
-  private progressBar?: Phaser.GameObjects.Graphics;
-  private progressLabel?: Phaser.GameObjects.Text;
+  private activeRowFill?: Phaser.GameObjects.Rectangle;
+  private activeRowTimeText?: Phaser.GameObjects.Text;
   private recipeStartTime = 0;
 
   constructor() {
@@ -92,6 +93,14 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Reset cooking state from any previous scene invocation
+    this.cookingTimer?.destroy();
+    this.cookingTimer = undefined;
+    this.activeRecipe = undefined;
+    this.recipeStartTime = 0;
+    this.activeRowFill = undefined;
+    this.activeRowTimeText = undefined;
+
     recordSceneEntry(this.registry, "KitchenScene");
     const w = this.scale.width;
     const h = this.scale.height;
@@ -112,15 +121,25 @@ export class KitchenScene extends Phaser.Scene {
     if (cycle === undefined) return;
 
     if (cycle.phase.tag === "kitchen_prep") {
-      renderPixelText(this, ["THE KITCHEN"], { centerY: 110 });
+      renderPixelText(this, ["THE KITCHEN"], { centerY: sceneTitleY });
       this.renderRecipeList();
       this.renderInventory();
       showTutorialHint(this, "kitchen_prep");
+
+      // Skip-ahead button
+      addMenuButton(this, skipButtonPos.x, skipButtonPos.y, "Done Prepping \u25B6", () => {
+        const current: DayCycle | undefined = this.registry.get("dayCycle");
+        if (current === undefined || current.phase.tag !== "kitchen_prep") return;
+        this.cookingTimer?.destroy();
+        const next = advanceToService(current, defaultDurations.serviceMs);
+        this.registry.set("dayCycle", next);
+        this.scene.start("RestaurantScene");
+      });
     } else if (
       cycle.phase.tag === "service" &&
       cycle.phase.subPhase.tag === "cooking"
     ) {
-      renderPixelText(this, ["THE KITCHEN"], { centerY: 110 });
+      renderPixelText(this, ["THE KITCHEN"], { centerY: sceneTitleY });
       this.renderServiceCooking();
     }
 
@@ -152,16 +171,13 @@ export class KitchenScene extends Phaser.Scene {
       this.renderInventory();
     }
 
-    // Update recipe progress bar if cooking, clean up if done
-    if (this.activeRecipe !== undefined) {
+    // Update inline cooking progress on active recipe row
+    if (this.activeRecipe !== undefined && this.activeRowFill) {
       const elapsed = Date.now() - this.recipeStartTime;
       const fraction = Math.min(1, elapsed / this.activeRecipe.timeMs);
-      this.updateProgressBar(fraction, this.activeRecipe);
-    } else {
-      this.progressBar?.destroy();
-      this.progressLabel?.destroy();
-      this.progressBar = undefined;
-      this.progressLabel = undefined;
+      this.activeRowFill.width = recipeRegion.width * fraction;
+      const remaining = Math.max(0, this.activeRecipe.timeMs - elapsed);
+      this.activeRowTimeText?.setText(`${(remaining / 1000).toFixed(1)}s`);
     }
 
     // Redraw timer bar using view model
@@ -169,9 +185,12 @@ export class KitchenScene extends Phaser.Scene {
     this.timerLabel?.destroy();
     const vm = timerBarVM(updated.phase, updated.day);
     if (vm !== undefined) {
-      const result = renderTimerBar(this, 100, 50, 600, 24, vm.fraction, {
-        label: vm.label,
-      });
+      const result = renderTimerBar(
+        this,
+        timerBar.x, timerBar.y, timerBar.width, timerBar.height,
+        vm.fraction,
+        { label: vm.label }
+      );
       this.timerGraphics = result.graphics;
       this.timerLabel = result.label;
     }
@@ -217,32 +236,54 @@ export class KitchenScene extends Phaser.Scene {
     const maxVisible = 7;
     const visibleRecipes = sortedRecipes.slice(0, maxVisible);
 
-    visibleRecipes.forEach((recipe, i) => {
-      const y = RECIPE_LIST_TOP + i * RECIPE_ROW_H + RECIPE_ROW_H / 2;
+    // Reset inline progress references (containers are destroyed above)
+    this.activeRowFill = undefined;
+    this.activeRowTimeText = undefined;
 
-      const container = this.add.container(RECIPE_LIST_LEFT, y);
+    const positions = recipeStack(visibleRecipes.length);
+    const rowWidth = recipeRegion.width;
+
+    visibleRecipes.forEach((recipe, i) => {
+      const pos = positions[i];
+      const container = this.add.container(pos.x, pos.y);
+      const isActiveRow = recipe.stepId === this.activeRecipe?.id;
 
       // Background
-      const bgAlpha = recipe.canMake && !isBusy ? 0.85 : 0.5;
+      const bgColor = isActiveRow ? 0x1a1a3e : recipe.canMake ? 0x1a2e1a : 0x1a1a2e;
+      const bgAlpha = isActiveRow ? 0.85 : recipe.canMake && !isBusy ? 0.85 : 0.5;
       const bg = this.add.graphics();
-      bg.fillStyle(recipe.canMake ? 0x1a2e1a : 0x1a1a2e, bgAlpha);
-      bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, RECIPE_WIDTH, RECIPE_ROW_H - 4, 4);
+      bg.fillStyle(bgColor, bgAlpha);
+      bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, rowWidth, RECIPE_ROW_H - 4, 4);
       container.add(bg);
+
+      // Fill overlay for active (cooking) row
+      if (isActiveRow) {
+        const elapsed = Date.now() - this.recipeStartTime;
+        const fraction = Math.min(1, elapsed / this.activeRecipe!.timeMs);
+        const fill = this.add.rectangle(
+          0, 0,
+          rowWidth * fraction, RECIPE_ROW_H - 4,
+          0x2196f3, 0.3
+        ).setOrigin(0, 0.5);
+        container.add(fill);
+        this.activeRowFill = fill;
+      }
 
       // Output item icon
       if (this.textures.exists(recipe.outputSpriteKey)) {
         const sprite = this.add
           .image(22, 0, recipe.outputSpriteKey)
-          .setDisplaySize(ICON_SIZE, ICON_SIZE);
+          .setDisplaySize(RECIPE_ICON_SIZE, RECIPE_ICON_SIZE);
         container.add(sprite);
       }
 
       // Recipe name
+      const nameColor = isActiveRow ? "#2196f3" : recipe.canMake ? "#4caf50" : "#666677";
       const nameText = this.add
         .text(46, -10, recipe.outputName, {
           fontFamily: "monospace",
           fontSize: "11px",
-          color: recipe.canMake ? "#4caf50" : "#666677",
+          color: nameColor,
           fontStyle: "bold",
         })
         .setOrigin(0, 0.5);
@@ -263,33 +304,46 @@ export class KitchenScene extends Phaser.Scene {
         .setOrigin(0, 0.5);
       container.add(inputsText);
 
-      // Time label
-      const timeStr = `${recipe.timeSeconds.toFixed(0)}s`;
-      const timeText = this.add
-        .text(RECIPE_WIDTH - 10, 0, timeStr, {
-          fontFamily: "monospace",
-          fontSize: "10px",
-          color: "#f5a623",
-        })
-        .setOrigin(1, 0.5);
-      container.add(timeText);
+      // Time label -- countdown for active row, static for others
+      if (isActiveRow) {
+        const remaining = Math.max(0, this.activeRecipe!.timeMs - (Date.now() - this.recipeStartTime));
+        const timeText = this.add
+          .text(rowWidth - 10, 0, `${(remaining / 1000).toFixed(1)}s`, {
+            fontFamily: "monospace",
+            fontSize: "10px",
+            color: "#2196f3",
+          })
+          .setOrigin(1, 0.5);
+        container.add(timeText);
+        this.activeRowTimeText = timeText;
+      } else {
+        const timeStr = `${recipe.timeSeconds.toFixed(0)}s`;
+        const timeText = this.add
+          .text(rowWidth - 10, 0, timeStr, {
+            fontFamily: "monospace",
+            fontSize: "10px",
+            color: "#f5a623",
+          })
+          .setOrigin(1, 0.5);
+        container.add(timeText);
+      }
 
-      // Make clickable — need to find the original RecipeStep for startRecipe
+      // Make clickable -- need to find the original RecipeStep for startRecipe
       if (recipe.canMake && !isBusy) {
         const hitZone = this.add
-          .zone(RECIPE_WIDTH / 2, 0, RECIPE_WIDTH, RECIPE_ROW_H - 4)
+          .zone(rowWidth / 2, 0, rowWidth, RECIPE_ROW_H - 4)
           .setInteractive({ useHandCursor: true });
         container.add(hitZone);
 
         hitZone.on("pointerover", () => {
           bg.clear();
           bg.fillStyle(0x2a4e2a, 0.95);
-          bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, RECIPE_WIDTH, RECIPE_ROW_H - 4, 4);
+          bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, rowWidth, RECIPE_ROW_H - 4, 4);
         });
         hitZone.on("pointerout", () => {
           bg.clear();
           bg.fillStyle(0x1a2e1a, bgAlpha);
-          bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, RECIPE_WIDTH, RECIPE_ROW_H - 4, 4);
+          bg.fillRoundedRect(0, -RECIPE_ROW_H / 2 + 2, rowWidth, RECIPE_ROW_H - 4, 4);
         });
         hitZone.on("pointerdown", () => {
           this.startRecipeByStepId(recipe.stepId);
@@ -349,10 +403,8 @@ export class KitchenScene extends Phaser.Scene {
     this.registry.set("inventory", updated);
 
     this.activeRecipe = undefined;
-    this.progressBar?.destroy();
-    this.progressLabel?.destroy();
-    this.progressBar = undefined;
-    this.progressLabel = undefined;
+    this.activeRowFill = undefined;
+    this.activeRowTimeText = undefined;
 
     // Check if we just completed a service cooking order
     const cycle: DayCycle | undefined = this.registry.get("dayCycle");
@@ -374,27 +426,6 @@ export class KitchenScene extends Phaser.Scene {
     this.renderInventory();
   }
 
-  private updateProgressBar(fraction: number, recipe: RecipeStep): void {
-    this.progressBar?.destroy();
-    this.progressLabel?.destroy();
-
-    const y = this.scale.height - 70;
-    const outputItem = findItem(recipe.output);
-    const name = outputItem?.name ?? recipe.name;
-    const remaining = Math.max(
-      0,
-      recipe.timeMs - (Date.now() - this.recipeStartTime)
-    );
-    const label = `${name} ${(remaining / 1000).toFixed(1)}s`;
-
-    const result = renderTimerBar(this, 100, y, 600, 20, fraction, {
-      color: 0x2196f3,
-      label,
-    });
-    this.progressBar = result.graphics;
-    this.progressLabel = result.label;
-  }
-
   private renderInventory(): void {
     this.invObjects.forEach((obj) => obj.destroy());
     this.invObjects = [];
@@ -405,7 +436,7 @@ export class KitchenScene extends Phaser.Scene {
 
     // Title
     const title = this.add
-      .text(INV_LEFT, INV_TOP - 20, "INVENTORY", {
+      .text(kitchenInvRegion.x, kitchenInvRegion.y - 20, "INVENTORY", {
         fontFamily: "monospace",
         fontSize: "12px",
         color: "#f5a623",
@@ -420,8 +451,8 @@ export class KitchenScene extends Phaser.Scene {
     counts.forEach((entry, i) => {
       const col = Math.floor(i / 12);
       const row = i % 12;
-      const x = INV_LEFT + col * INV_COL_W * 2;
-      const y = INV_TOP + 10 + row * INV_ROW_H;
+      const x = kitchenInvRegion.x + col * KITCHEN_INV_COL_W * 2;
+      const y = kitchenInvRegion.y + 10 + row * KITCHEN_INV_ROW_H;
 
       const item = findItem(entry.itemId);
       const name = item?.name ?? entry.itemId;
@@ -448,7 +479,7 @@ export class KitchenScene extends Phaser.Scene {
 
     if (counts.length === 0) {
       const empty = this.add
-        .text(INV_LEFT, INV_TOP + 10, "(empty)", {
+        .text(kitchenInvRegion.x, kitchenInvRegion.y + 10, "(empty)", {
           fontFamily: "monospace",
           fontSize: "10px",
           color: "#666677",
@@ -482,30 +513,30 @@ export class KitchenScene extends Phaser.Scene {
       return;
     }
 
-    // Show what we need to cook
-    this.add
-      .text(this.scale.width / 2, 140, `Order: ${dishName}`, {
-        fontFamily: "monospace",
-        fontSize: "14px",
-        color: "#f5a623",
-        backgroundColor: "#1a1a2e",
-        padding: { x: 12, y: 6 },
-      })
-      .setOrigin(0.5);
-
-    // Show dish sprite
+    // Show order subtitle between title and recipe list
     const spriteKey = `item-${dishId}`;
+    const orderY = recipeRegion.y - 8;
     if (this.textures.exists(spriteKey)) {
       this.add
-        .image(this.scale.width / 2, 180, spriteKey)
-        .setDisplaySize(48, 48);
+        .image(recipeRegion.x + 10, orderY, spriteKey)
+        .setDisplaySize(20, 20);
     }
+    this.add
+      .text(recipeRegion.x + 26, orderY, `Order: ${dishName}`, {
+        fontFamily: "monospace",
+        fontSize: "11px",
+        color: "#f5a623",
+        fontStyle: "bold",
+        backgroundColor: "#1a1a2e",
+        padding: { x: 4, y: 2 },
+      })
+      .setOrigin(0, 0.5);
 
     // Abandon order button
     addMenuButton(
       this,
-      this.scale.width - 100,
-      this.scale.height - 40,
+      skipButtonPos.x,
+      skipButtonPos.y,
       "Abandon Order",
       () => this.abandonServiceCooking()
     );
