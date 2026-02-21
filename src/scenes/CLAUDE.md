@@ -8,12 +8,12 @@
 - **`LoadGameScene`** — Lists save slots sorted by recency via `formatSlotSummary`. Click loads slot → GroceryScene. Back → TitleScene.
 - **`GroceryScene`** — 30s shopping phase. Uses `groceryVM` for item grid + `timerBarVM` for countdown. Panel overlay + pixel-art title + coin HUD. Auto-transitions to KitchenScene on timer expiry. Calls `recordSceneEntry` on create. Esc → PauseScene.
 - **`KitchenScene`** — Dual-mode. **Prep mode** (`kitchen_prep` phase): 30s countdown, auto-transitions to RestaurantScene. **Cooking mode** (`service` phase, `cooking` sub-phase): shows order details + recipe list. Uses `kitchenVM` for recipe craftability. Service timer keeps ticking. Esc → PauseScene.
-- **`RestaurantScene`** — Service phase hub. 2x3 table grid via `tablePositions()`. Uses `restaurantVM` for table status/action prompts + `dayEndVM` for summary. `difficultyForDay` drives spawns/patience. Auto-calls `beginTakingOrder` when waiting + queue non-empty. "Serve Now" (if dish in inventory) or "Cook Order" → KitchenScene. Day-end overlay with "Next Day" button. Esc → PauseScene.
+- **`RestaurantScene`** — Service phase hub. 2x3 table grid via `tablePositions()`. Uses `restaurantVM` for table status/action prompts + `dayEndVM` for summary. `difficultyForDay` drives spawns/patience. Auto-calls `beginTakingOrder` when waiting + queue non-empty. "Serve Now" (if dish in inventory) or "Cook Order" → KitchenScene. Day-end overlay with "Next Day" button. Coin HUD updates each frame showing wallet + current service earnings. Ends day early when `isRestaurantIdle` and inventory is empty. Esc → PauseScene.
 - **`PauseScene`** — Esc-key overlay via `scene.launch()` + `scene.pause()`. Menus: Resume, Save, Load Game, Debug (Skip Phase, Add 50 Coins), Quit to Title. Pausing freezes `update()` and all Phaser timers.
 
 ## Scene Helpers
 
-- **`renderPixelText.ts`** — `renderPixelText(scene, lines, options)` draws pixel font with backdrop. `addNavButton` / `addMenuButton` for clickable buttons.
+- **`renderPixelText.ts`** — `renderPixelText(scene, lines, options)` draws pixel font with backdrop; returns `Phaser.GameObjects.Graphics` so callers can destroy and redraw. `addNavButton` / `addMenuButton` for clickable buttons.
 - **`timerBar.ts`** — `renderTimerBar(scene, ...)` → `TimerBarResult` (graphics + label). `TIMER_COLOR_HEX` maps colors. Re-exports `formatTimeRemaining`.
 - **`panel.ts`** — `renderPanel(scene, spec, appearance?)` draws Phaser rounded rect via domain `resolvePanel`.
 - **`restaurantTypeHelper.ts`** — `getActiveRestaurantType(registry)`, `getActiveUnlockedCount(registry)`. Asset key helpers: `backgroundKey(type, scene)` → `"burger-grocery-bg"`, `tableKey(type)` → `"burger-table"`, plus `*AssetPath` variants.

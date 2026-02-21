@@ -32,6 +32,7 @@ import {
   activeCustomerId,
   tickCustomerPatience,
   removeExpiredCustomers,
+  isRestaurantIdle,
   defaultDurations,
 } from "../domain/day-cycle";
 import { pickRandomDish, unlockedMenuFor, unlockedDishIdsFor } from "../domain/menu";
@@ -88,6 +89,7 @@ import {
 export class RestaurantScene extends Phaser.Scene {
   private timerGraphics?: Phaser.GameObjects.Graphics;
   private timerLabel?: Phaser.GameObjects.Text;
+  private coinHudGraphics?: Phaser.GameObjects.Graphics;
   private customerSpawnTimer?: Phaser.Time.TimerEvent;
   private statusObjects: Phaser.GameObjects.GameObject[] = [];
   private inventoryObjects: Phaser.GameObjects.GameObject[] = [];
@@ -126,6 +128,7 @@ export class RestaurantScene extends Phaser.Scene {
     this.dayEndShown = false;
     this.statusObjects = [];
     this.tableSprites = [];
+    this.coinHudGraphics = undefined;
     this.notifications = createNotificationState();
     recordSceneEntry(this.registry, "RestaurantScene");
     const w = this.scale.width;
@@ -251,8 +254,19 @@ export class RestaurantScene extends Phaser.Scene {
 
     this.updateTableTints(servicePhase);
     this.inventoryObjects = renderInventorySidebar(this, this.getInventory(), this.inventoryObjects);
+    this.renderCoinHud();
 
     if (isPhaseTimerExpired(updated)) {
+      this.customerSpawnTimer?.destroy();
+      const ended = advanceToDayEnd(updated);
+      this.registry.set("dayCycle", ended);
+      this.clearStatus();
+      this.showDayEnd(ended);
+      return;
+    }
+
+    // End day early when restaurant is idle and inventory has no food left
+    if (updated.phase.tag === "service" && isRestaurantIdle(updated.phase) && this.getInventory().items.length === 0) {
       this.customerSpawnTimer?.destroy();
       const ended = advanceToDayEnd(updated);
       this.registry.set("dayCycle", ended);
@@ -735,11 +749,14 @@ export class RestaurantScene extends Phaser.Scene {
   }
 
   private renderCoinHud(): void {
+    this.coinHudGraphics?.destroy();
     const wallet: Wallet = this.registry.get("wallet") ?? initialWallet;
-    const coinText = formatCoins(wallet);
+    const cycle: DayCycle | undefined = this.getCycle();
+    const liveEarnings = cycle?.phase.tag === "service" ? cycle.phase.earnings : 0;
+    const coinText = formatCoins({ coins: wallet.coins + liveEarnings });
     const config = createDefaultLayoutConfig();
     const textWidth = measureLineWidth(coinText, config) * config.pixelSize;
-    renderPixelText(this, [coinText], {
+    this.coinHudGraphics = renderPixelText(this, [coinText], {
       x: this.scale.width - textWidth - config.pixelSize * 5,
       y: config.pixelSize * 3,
     });

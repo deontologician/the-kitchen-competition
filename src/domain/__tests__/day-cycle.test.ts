@@ -21,6 +21,7 @@ import {
   tickCustomerPatience,
   removeExpiredCustomers,
   activeSceneForPhase,
+  isRestaurantIdle,
   defaultDurations,
   type DayCycle,
   type Phase,
@@ -831,6 +832,54 @@ describe("removeExpiredCustomers", () => {
     const cleaned = removeExpiredCustomers(phase);
     expect(cleaned.customersLost).toBe(2);
     expect(cleaned.customerQueue.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isRestaurantIdle
+// ---------------------------------------------------------------------------
+describe("isRestaurantIdle", () => {
+  const makeService = () => {
+    const service = advanceToService(
+      advanceToKitchenPrep(createDayCycle(1), defaultDurations.kitchenPrepMs),
+      defaultDurations.serviceMs
+    );
+    if (service.phase.tag !== "service") throw new Error("expected service");
+    return service.phase;
+  };
+
+  it("returns true when waiting and no customers in queue", () => {
+    expect(isRestaurantIdle(makeService())).toBe(true);
+  });
+
+  it("returns false when customers are queued", () => {
+    const c1 = createCustomer(customerId("c1"), itemId("classic-burger"));
+    const queued = enqueueCustomer(makeService(), c1);
+    expect(isRestaurantIdle(queued)).toBe(false);
+  });
+
+  it("returns false when subPhase is taking_order", () => {
+    const c1 = createCustomer(customerId("c1"), itemId("classic-burger"));
+    const queued = enqueueCustomer(makeService(), c1);
+    const taking = beginTakingOrder(queued)!;
+    expect(isRestaurantIdle(taking)).toBe(false);
+  });
+
+  it("returns false when cooking", () => {
+    const c1 = createCustomer(customerId("c1"), itemId("classic-burger"));
+    const queued = enqueueCustomer(makeService(), c1);
+    const taking = beginTakingOrder(queued)!;
+    const cooking = beginCooking(taking, orderId("o1"), itemId("classic-burger"));
+    expect(isRestaurantIdle(cooking)).toBe(false);
+  });
+
+  it("returns false when serving", () => {
+    const c1 = createCustomer(customerId("c1"), itemId("classic-burger"));
+    const queued = enqueueCustomer(makeService(), c1);
+    const taking = beginTakingOrder(queued)!;
+    const cooking = beginCooking(taking, orderId("o1"), itemId("classic-burger"));
+    const serving = finishCooking(cooking);
+    expect(isRestaurantIdle(serving)).toBe(false);
   });
 });
 

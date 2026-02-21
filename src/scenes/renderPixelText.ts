@@ -16,7 +16,7 @@ export const renderPixelText = (
     readonly y?: number;
     readonly config?: LayoutConfig;
   } = {}
-): void => {
+): Phaser.GameObjects.Graphics => {
   const config = options.config ?? createDefaultLayoutConfig();
   const color = options.color ?? 0xf5a623;
   const positions = layoutLines(lines, config);
@@ -61,6 +61,8 @@ export const renderPixelText = (
       config.pixelSize
     );
   });
+
+  return graphics;
 };
 
 export const addMenuButton = (

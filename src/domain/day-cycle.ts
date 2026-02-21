@@ -316,6 +316,10 @@ export const removeExpiredCustomers = (
 // Query helpers
 // ---------------------------------------------------------------------------
 
+export const isRestaurantIdle = (phase: ServicePhase): boolean =>
+  phase.subPhase.tag === "waiting_for_customer" &&
+  phase.customerQueue.length === 0;
+
 export const activeSceneForPhase = (phase: Phase): string => {
   switch (phase.tag) {
     case "grocery":
