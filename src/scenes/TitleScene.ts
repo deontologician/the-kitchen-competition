@@ -2,24 +2,24 @@ import Phaser from "phaser";
 import { addMenuButton } from "./renderPixelText";
 import { type SlotId, slotId } from "../domain/branded";
 import { canvas, menuStack } from "../domain/view/scene-layout";
-import { type Wallet, createWallet, initialWallet } from "../domain/wallet";
-import { createInventory } from "../domain/inventory";
+import { createWallet, initialWallet } from "../domain/wallet";
+import { createInventory, type Inventory } from "../domain/inventory";
 import {
   type SaveStore,
+  type SaveSlot,
   type RestaurantType,
   serializeStore,
   loadStore,
   findMostRecent,
   addSlot,
   createSaveSlot,
-  patchSlot,
   findSlot,
   updateSlot,
   createSaveStore,
+  patchSlot,
 } from "../domain/save-slots";
 import { SAVE_KEY } from "../domain/save-game";
-import { createDayCycle, type DayCycle } from "../domain/day-cycle";
-import { recordDayAdvance } from "./saveHelpers";
+import { type DayCycle, createDayCycle, activeSceneForPhase } from "../domain/day-cycle";
 import { STARTER_DISH_COUNT } from "../domain/menu";
 import {
   type Leaderboard,
@@ -27,6 +27,7 @@ import {
   deserializeLeaderboard,
   serializeLeaderboard,
 } from "../domain/leaderboard";
+import { snapshotSlotPatch } from "../domain/snapshot";
 
 export class TitleScene extends Phaser.Scene {
   private _autoSaveRegistered = false;
@@ -63,21 +64,11 @@ export class TitleScene extends Phaser.Scene {
     if (this._autoSaveRegistered) return;
     this._autoSaveRegistered = true;
 
-    this.registry.events.on(
-      "changedata-wallet",
-      (_parent: unknown, value: Wallet) => {
-        const store: SaveStore | undefined = this.registry.get("saveStore");
-        const activeSlotId: SlotId | undefined =
-          this.registry.get("activeSlotId");
-        if (store === undefined || activeSlotId === undefined) return;
-
-        const slot = findSlot(store, activeSlotId);
-        if (slot === undefined) return;
-
-        const updated = patchSlot(slot, { coins: value.coins, lastSaved: Date.now() });
-        this.registry.set("saveStore", updateSlot(store, updated));
-      }
-    );
+    const persist = () => this.persistSnapshot();
+    (["wallet", "dayCycle", "inventory"] as const).forEach((key) => {
+      this.registry.events.on(`setdata-${key}`, persist);
+      this.registry.events.on(`changedata-${key}`, persist);
+    });
 
     this.registry.events.on(
       "changedata-saveStore",
@@ -87,9 +78,9 @@ export class TitleScene extends Phaser.Scene {
     );
 
     this.registry.events.on(
-      "changedata-dayCycle",
-      (_parent: unknown, value: DayCycle) => {
-        recordDayAdvance(this.registry, value.day);
+      "setdata-saveStore",
+      (_parent: unknown, _key: string, value: SaveStore) => {
+        localStorage.setItem(SAVE_KEY, serializeStore(value));
       }
     );
 
@@ -102,6 +93,34 @@ export class TitleScene extends Phaser.Scene {
         );
       }
     );
+  }
+
+  private persistSnapshot(): void {
+    const store: SaveStore | undefined = this.registry.get("saveStore");
+    const activeSlotId: SlotId | undefined = this.registry.get("activeSlotId");
+    if (store === undefined || activeSlotId === undefined) return;
+
+    const slot = findSlot(store, activeSlotId);
+    if (slot === undefined) return;
+
+    const wallet = this.registry.get("wallet");
+    const dayCycle: DayCycle | undefined = this.registry.get("dayCycle");
+    const inventory: Inventory = this.registry.get("inventory") ?? createInventory();
+    if (wallet === undefined || dayCycle === undefined) return;
+
+    const patch = snapshotSlotPatch(wallet, dayCycle, inventory);
+    this.registry.set("saveStore", updateSlot(store, patchSlot(slot, patch)));
+  }
+
+  private loadSlot(slot: SaveSlot): void {
+    this.registry.set("activeSlotId", slot.id);
+    this.registry.set("wallet", createWallet(slot.coins));
+    const dayCycle: DayCycle = slot.phase !== undefined
+      ? { day: slot.day, phase: slot.phase }
+      : createDayCycle(slot.day);
+    this.registry.set("dayCycle", dayCycle);
+    this.registry.set("inventory", slot.inventory ?? createInventory());
+    this.scene.start(activeSceneForPhase(dayCycle.phase));
   }
 
   private renderBackground(): void {
@@ -160,11 +179,7 @@ export class TitleScene extends Phaser.Scene {
             this.registry.get("saveStore") ?? createSaveStore();
           const recent = findMostRecent(current);
           if (recent === undefined) return;
-          this.registry.set("activeSlotId", recent.id);
-          this.registry.set("wallet", createWallet(recent.coins));
-          this.registry.set("dayCycle", createDayCycle(recent.day));
-          this.registry.set("inventory", createInventory());
-          this.scene.start("GroceryScene");
+          this.loadSlot(recent);
         })
       );
       idx++;
