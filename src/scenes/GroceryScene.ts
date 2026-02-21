@@ -24,7 +24,19 @@ import {
   advanceToKitchenPrep,
   defaultDurations,
 } from "../domain/day-cycle";
-import { enabledGroceryItemsFor } from "../domain/menu";
+import {
+  enabledGroceryItemsFor,
+  unlockedDishIdsFor,
+  unlockedMenuFor,
+} from "../domain/menu";
+import {
+  type SaveStore,
+  type SaveSlot,
+  findSlot,
+  updateSlot,
+  toggleDish,
+} from "../domain/save-slots";
+import type { SlotId } from "../domain/branded";
 import { findItem, type ItemDef } from "../domain/items";
 import {
   createInventory,
@@ -51,6 +63,7 @@ export class GroceryScene extends Phaser.Scene {
   private itemButtons: Phaser.GameObjects.Container[] = [];
   private coinHudObjects: Phaser.GameObjects.GameObject[] = [];
   private groceryItems: ReadonlyArray<ItemDef> = [];
+  private menuPanel?: Phaser.GameObjects.Container;
 
   constructor() {
     super("GroceryScene");
@@ -68,6 +81,15 @@ export class GroceryScene extends Phaser.Scene {
     const disabled = getActiveDisabledDishes(this.registry);
     const itemIds = enabledGroceryItemsFor(type, unlocked, disabled);
     itemIds.forEach((id) => {
+      const spriteKey = `item-${id}`;
+      if (!this.textures.exists(spriteKey)) {
+        this.load.image(spriteKey, `assets/items/${id}.png`);
+      }
+    });
+
+    // Also preload dish sprites for the menu panel
+    const dishIds = unlockedDishIdsFor(type, unlocked);
+    dishIds.forEach((id) => {
       const spriteKey = `item-${id}`;
       if (!this.textures.exists(spriteKey)) {
         this.load.image(spriteKey, `assets/items/${id}.png`);
@@ -105,6 +127,17 @@ export class GroceryScene extends Phaser.Scene {
     this.renderItemGrid();
     this.renderCoinHud();
     showTutorialHint(this, "grocery");
+
+    // Menu toggle button (top-left)
+    const menuBtnX = 60;
+    const menuBtnY = 20;
+    addMenuButton(this, menuBtnX, menuBtnY, "MENU \u25BC", () => {
+      if (this.menuPanel !== undefined) {
+        this.closeMenuPanel();
+      } else {
+        this.showMenuPanel();
+      }
+    });
 
     // Skip-ahead button
     addMenuButton(this, skipButtonPos.x, skipButtonPos.y, "Done Shopping \u25B6", () => {
@@ -152,6 +185,187 @@ export class GroceryScene extends Phaser.Scene {
       this.registry.set("dayCycle", next);
       this.scene.start("KitchenScene");
     }
+  }
+
+  private closeMenuPanel(): void {
+    this.menuPanel?.destroy();
+    this.menuPanel = undefined;
+  }
+
+  private showMenuPanel(): void {
+    this.closeMenuPanel();
+
+    const type = getActiveRestaurantType(this.registry);
+    const unlockedCount = getActiveUnlockedCount(this.registry);
+    const disabledDishes = getActiveDisabledDishes(this.registry);
+
+    const dishIds = unlockedDishIdsFor(type, unlockedCount);
+    const menu = unlockedMenuFor(type, unlockedCount);
+
+    const panelW = 440;
+    const rowH = 54;
+    const panelH = 60 + dishIds.length * rowH + 16;
+    const panelX = (canvas.width - panelW) / 2;
+    const panelY = (canvas.height - panelH) / 2;
+
+    const container = this.add.container(0, 0);
+    this.menuPanel = container;
+
+    // Dim overlay (click to close)
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillRect(0, 0, canvas.width, canvas.height);
+    overlay.setInteractive(
+      new Phaser.Geom.Rectangle(0, 0, canvas.width, canvas.height),
+      Phaser.Geom.Rectangle.Contains
+    );
+    overlay.on("pointerdown", () => this.closeMenuPanel());
+    container.add(overlay);
+
+    // Panel background
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0d0d1a, 0.97);
+    bg.fillRoundedRect(panelX, panelY, panelW, panelH, 10);
+    bg.lineStyle(2, 0x444466, 1);
+    bg.strokeRoundedRect(panelX, panelY, panelW, panelH, 10);
+    container.add(bg);
+
+    // Title
+    const title = this.add
+      .text(panelX + panelW / 2, panelY + 24, "TODAY'S MENU", {
+        fontFamily: "monospace",
+        fontSize: "16px",
+        color: "#f5a623",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    container.add(title);
+
+    // Close button
+    const closeBtn = this.add
+      .text(panelX + panelW - 16, panelY + 14, "\u2715", {
+        fontFamily: "monospace",
+        fontSize: "18px",
+        color: "#888899",
+      })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true });
+    closeBtn.on("pointerover", () => closeBtn.setColor("#ffffff"));
+    closeBtn.on("pointerout", () => closeBtn.setColor("#888899"));
+    closeBtn.on("pointerdown", () => this.closeMenuPanel());
+    container.add(closeBtn);
+
+    // Dish rows
+    dishIds.forEach((dishId, i) => {
+      const rowY = panelY + 52 + i * rowH;
+      const isEnabled = !disabledDishes.includes(dishId);
+      const dishItem = findItem(dishId);
+      const dishName = dishItem?.name ?? dishId;
+      const menuItem = menu.items.find((mi) => mi.dishId === dishId);
+
+      // Row bg
+      const rowBg = this.add.graphics();
+      const rowBgColor = isEnabled ? 0x1a2e1a : 0x2e1a1a;
+      rowBg.fillStyle(rowBgColor, 0.7);
+      rowBg.fillRoundedRect(panelX + 10, rowY, panelW - 20, rowH - 6, 6);
+      container.add(rowBg);
+
+      // Dish sprite
+      const spriteKey = `item-${dishId}`;
+      if (this.textures.exists(spriteKey)) {
+        const sprite = this.add
+          .image(panelX + 36, rowY + (rowH - 6) / 2, spriteKey)
+          .setDisplaySize(36, 36)
+          .setAlpha(isEnabled ? 1 : 0.35);
+        container.add(sprite);
+      }
+
+      // Dish name
+      const nameText = this.add
+        .text(panelX + 62, rowY + (rowH - 6) / 2 - 8, dishName, {
+          fontFamily: "monospace",
+          fontSize: "12px",
+          color: isEnabled ? "#e0e0e0" : "#888888",
+          fontStyle: isEnabled ? "bold" : "normal",
+        })
+        .setOrigin(0, 0.5);
+      container.add(nameText);
+
+      // Price info
+      if (menuItem !== undefined) {
+        const priceText = this.add
+          .text(panelX + 62, rowY + (rowH - 6) / 2 + 8, `$${menuItem.sellPrice} each`, {
+            fontFamily: "monospace",
+            fontSize: "10px",
+            color: "#666677",
+          })
+          .setOrigin(0, 0.5);
+        container.add(priceText);
+      }
+
+      // ON/OFF toggle
+      const toggleLabel = isEnabled ? "ON" : "OFF";
+      const toggleColor = isEnabled ? "#4caf50" : "#f44336";
+      const toggleText = this.add
+        .text(panelX + panelW - 26, rowY + (rowH - 6) / 2, toggleLabel, {
+          fontFamily: "monospace",
+          fontSize: "13px",
+          color: toggleColor,
+          fontStyle: "bold",
+          backgroundColor: "#1a1a2e",
+          padding: { x: 8, y: 4 },
+        })
+        .setOrigin(1, 0.5)
+        .setInteractive({ useHandCursor: true });
+
+      // Hit zone for the whole row
+      const rowHit = this.add
+        .zone(panelX + 10, rowY, panelW - 20, rowH - 6)
+        .setOrigin(0, 0)
+        .setInteractive({ useHandCursor: true });
+
+      const handleToggle = (): void => {
+        const store: SaveStore | undefined = this.registry.get("saveStore");
+        const activeSlotId: SlotId | undefined = this.registry.get("activeSlotId");
+        if (store === undefined || activeSlotId === undefined) return;
+        const slot: SaveSlot | undefined = findSlot(store, activeSlotId);
+        if (slot === undefined) return;
+
+        const currentDisabled = slot.disabledDishes ?? [];
+        const currentlyEnabled = dishIds.filter((id) => !currentDisabled.includes(id));
+        const updated = toggleDish(slot, dishId, [...currentlyEnabled]);
+        this.registry.set("saveStore", updateSlot(store, updated));
+
+        // Re-render grocery grid and reopen panel
+        this.renderItemGrid();
+        this.showMenuPanel();
+      };
+
+      rowHit.on("pointerover", () => {
+        rowBg.clear();
+        rowBg.fillStyle(isEnabled ? 0x244424 : 0x442424, 0.9);
+        rowBg.fillRoundedRect(panelX + 10, rowY, panelW - 20, rowH - 6, 6);
+      });
+      rowHit.on("pointerout", () => {
+        rowBg.clear();
+        rowBg.fillStyle(rowBgColor, 0.7);
+        rowBg.fillRoundedRect(panelX + 10, rowY, panelW - 20, rowH - 6, 6);
+      });
+      rowHit.on("pointerdown", handleToggle);
+      toggleText.on("pointerdown", handleToggle);
+
+      container.add([rowHit, toggleText]);
+    });
+
+    // Instruction hint
+    const hint = this.add
+      .text(panelX + panelW / 2, panelY + panelH - 14, "Click a dish to enable/disable it", {
+        fontFamily: "monospace",
+        fontSize: "9px",
+        color: "#555566",
+      })
+      .setOrigin(0.5, 1);
+    container.add(hint);
   }
 
   private renderItemGrid(): void {
