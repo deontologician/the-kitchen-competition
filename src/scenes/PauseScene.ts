@@ -7,7 +7,7 @@ import {
   type SaveSlot,
   findSlot,
   updateSlot,
-  createSaveSlot,
+  patchSlot,
   createSaveStore,
   formatSlotSummary,
 } from "../domain/save-slots";
@@ -117,15 +117,7 @@ export class PauseScene extends Phaser.Scene {
     if (slot === undefined) return;
 
     // Touch lastSaved to trigger auto-save listener
-    const updated = createSaveSlot(
-      slot.id,
-      slot.restaurantType,
-      slot.day,
-      slot.coins,
-      slot.scene,
-      Date.now(),
-      slot.unlockedDishes
-    );
+    const updated = patchSlot(slot, { lastSaved: Date.now() });
     this.registry.set("saveStore", updateSlot(store, updated));
 
     // Brief "Saved!" feedback

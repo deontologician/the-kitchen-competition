@@ -12,6 +12,7 @@ import {
   findMostRecent,
   addSlot,
   createSaveSlot,
+  patchSlot,
   findSlot,
   updateSlot,
   createSaveStore,
@@ -73,15 +74,7 @@ export class TitleScene extends Phaser.Scene {
         const slot = findSlot(store, activeSlotId);
         if (slot === undefined) return;
 
-        const updated = createSaveSlot(
-          slot.id,
-          slot.restaurantType,
-          slot.day,
-          value.coins,
-          slot.scene,
-          Date.now(),
-          slot.unlockedDishes
-        );
+        const updated = patchSlot(slot, { coins: value.coins, lastSaved: Date.now() });
         this.registry.set("saveStore", updateSlot(store, updated));
       }
     );
