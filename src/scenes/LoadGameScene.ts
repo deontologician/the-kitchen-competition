@@ -3,10 +3,11 @@ import { addMenuButton } from "./renderPixelText";
 import { createWallet } from "../domain/wallet";
 import {
   type SaveStore,
+  type SaveSlot,
   createSaveStore,
   formatSlotSummary,
 } from "../domain/save-slots";
-import { createDayCycle } from "../domain/day-cycle";
+import { type DayCycle, createDayCycle, activeSceneForPhase } from "../domain/day-cycle";
 import { createInventory } from "../domain/inventory";
 import { canvas, menuStack } from "../domain/view/scene-layout";
 
@@ -44,18 +45,23 @@ export class LoadGameScene extends Phaser.Scene {
         positions[i].x,
         positions[i].y,
         formatSlotSummary(slot),
-        () => {
-          this.registry.set("activeSlotId", slot.id);
-          this.registry.set("wallet", createWallet(slot.coins));
-          this.registry.set("dayCycle", createDayCycle(slot.day));
-          this.registry.set("inventory", createInventory());
-          this.scene.start("GroceryScene");
-        }
+        () => this.loadSlot(slot)
       );
     });
 
     addMenuButton(this, positions[sorted.length].x, positions[sorted.length].y, "Back", () => {
       this.scene.start("TitleScene");
     });
+  }
+
+  private loadSlot(slot: SaveSlot): void {
+    this.registry.set("activeSlotId", slot.id);
+    this.registry.set("wallet", createWallet(slot.coins));
+    const dayCycle: DayCycle = slot.phase !== undefined
+      ? { day: slot.day, phase: slot.phase }
+      : createDayCycle(slot.day);
+    this.registry.set("dayCycle", dayCycle);
+    this.registry.set("inventory", slot.inventory ?? createInventory());
+    this.scene.start(activeSceneForPhase(dayCycle.phase));
   }
 }
