@@ -48,6 +48,27 @@ export const createSaveSlot = (
     : base;
 };
 
+export interface SaveSlotPatch {
+  readonly day?: number;
+  readonly coins?: number;
+  readonly scene?: string;
+  readonly lastSaved?: number;
+  readonly unlockedDishes?: number;
+  readonly disabledDishes?: ReadonlyArray<ItemId>;
+}
+
+export const patchSlot = (slot: SaveSlot, patch: SaveSlotPatch): SaveSlot =>
+  createSaveSlot(
+    slot.id,
+    slot.restaurantType,
+    patch.day ?? slot.day,
+    patch.coins ?? slot.coins,
+    patch.scene ?? slot.scene,
+    patch.lastSaved ?? slot.lastSaved,
+    patch.unlockedDishes ?? slot.unlockedDishes,
+    patch.disabledDishes !== undefined ? patch.disabledDishes : slot.disabledDishes
+  );
+
 export const toggleDish = (
   slot: SaveSlot,
   dishId: ItemId,
