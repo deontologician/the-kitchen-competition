@@ -74,7 +74,7 @@ import {
   type SaveStore,
   findSlot,
   updateSlot,
-  createSaveSlot,
+  patchSlot,
 } from "../domain/save-slots";
 import { timerBarVM } from "../domain/view/timer-vm";
 import { restaurantVM } from "../domain/view/restaurant-vm";
@@ -603,16 +603,10 @@ export class RestaurantScene extends Phaser.Scene {
       if (store !== undefined && activeSlotId !== undefined) {
         const slot = findSlot(store, activeSlotId);
         if (slot !== undefined) {
-          const updated = createSaveSlot(
-            slot.id,
-            slot.restaurantType,
-            slot.day,
-            slot.coins,
-            slot.scene,
-            Date.now(),
-            vm.dishUnlock.newUnlockedCount,
-            slot.disabledDishes
-          );
+          const updated = patchSlot(slot, {
+            unlockedDishes: vm.dishUnlock.newUnlockedCount,
+            lastSaved: Date.now(),
+          });
           this.registry.set("saveStore", updateSlot(store, updated));
         }
       }
