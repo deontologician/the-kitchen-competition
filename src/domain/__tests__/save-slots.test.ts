@@ -20,7 +20,17 @@ import {
   type SaveStore,
   type RestaurantType,
 } from "../save-slots";
-import { slotId, itemId } from "../branded";
+import { slotId, itemId, customerId, orderId } from "../branded";
+import { createInventory, addItem, type Inventory } from "../inventory";
+import {
+  type Phase,
+  createDayCycle,
+  advanceToKitchenPrep,
+  advanceToService,
+  advanceToDayEnd,
+  enqueueCustomer,
+  createCustomer,
+} from "../day-cycle";
 
 const makeSlot = (overrides: Partial<SaveSlot> = {}): SaveSlot =>
   createSaveSlot(
@@ -640,6 +650,132 @@ describe("toggleDish", () => {
     const result = deserializeStore(oldJson);
     expect(result).toBeDefined();
     expect(result!.slots[0].disabledDishes ?? []).toEqual([]);
+  });
+});
+
+// --- phase + inventory persistence ---
+
+describe("phase and inventory persistence", () => {
+  const groceryPhase: Phase = createDayCycle(1).phase;
+  const kitchenPhase: Phase = advanceToKitchenPrep(createDayCycle(1), 30_000).phase;
+  const servicePhase: Phase = advanceToService(createDayCycle(1), 120_000).phase;
+  const dayEndPhase: Phase = advanceToDayEnd(advanceToService(createDayCycle(1), 120_000)).phase;
+  const inv = addItem(addItem(createInventory(), itemId("bun"), 1000), itemId("beef-patty"), 2000);
+
+  describe("patchSlot with phase/inventory", () => {
+    it("preserves phase when not in patch", () => {
+      const slot = makeSlot();
+      const withPhase = patchSlot(slot, { phase: groceryPhase });
+      const patched = patchSlot(withPhase, { coins: 20 });
+      expect(patched.phase).toEqual(groceryPhase);
+    });
+
+    it("preserves inventory when not in patch", () => {
+      const slot = makeSlot();
+      const withInv = patchSlot(slot, { inventory: inv });
+      const patched = patchSlot(withInv, { coins: 20 });
+      expect(patched.inventory).toEqual(inv);
+    });
+
+    it("replaces phase when in patch", () => {
+      const slot = makeSlot();
+      const withGrocery = patchSlot(slot, { phase: groceryPhase });
+      const patched = patchSlot(withGrocery, { phase: kitchenPhase });
+      expect(patched.phase).toEqual(kitchenPhase);
+    });
+
+    it("replaces inventory when in patch", () => {
+      const slot = makeSlot();
+      const withInv = patchSlot(slot, { inventory: inv });
+      const newInv = addItem(createInventory(), itemId("rice"), 3000);
+      const patched = patchSlot(withInv, { inventory: newInv });
+      expect(patched.inventory).toEqual(newInv);
+    });
+
+    it("normalizes empty inventory to omitted", () => {
+      const slot = makeSlot();
+      const withInv = patchSlot(slot, { inventory: inv });
+      const patched = patchSlot(withInv, { inventory: createInventory() });
+      expect(patched.inventory).toBeUndefined();
+    });
+
+    it("preserves undefined phase/inventory when not in patch", () => {
+      const slot = makeSlot();
+      expect(slot.phase).toBeUndefined();
+      expect(slot.inventory).toBeUndefined();
+      const patched = patchSlot(slot, { coins: 99 });
+      expect(patched.phase).toBeUndefined();
+      expect(patched.inventory).toBeUndefined();
+    });
+  });
+
+  describe("serialize/deserialize with phase + inventory", () => {
+    it("roundtrips grocery phase + inventory", () => {
+      const slot = patchSlot(makeSlot(), { phase: groceryPhase, inventory: inv });
+      const store = addSlot(createSaveStore(), slot);
+      const result = deserializeStore(serializeStore(store));
+      expect(result).toBeDefined();
+      expect(result!.slots[0].phase).toEqual(groceryPhase);
+      expect(result!.slots[0].inventory).toEqual(inv);
+    });
+
+    it("roundtrips kitchen_prep phase", () => {
+      const slot = patchSlot(makeSlot(), { phase: kitchenPhase });
+      const store = addSlot(createSaveStore(), slot);
+      const result = deserializeStore(serializeStore(store));
+      expect(result!.slots[0].phase).toEqual(kitchenPhase);
+    });
+
+    it("roundtrips service phase with customers", () => {
+      const svc = advanceToService(createDayCycle(1), 120_000);
+      const customer = createCustomer(customerId("c1"), itemId("classic-burger"), 60_000);
+      const withCustomer = enqueueCustomer(svc.phase as Extract<Phase, { tag: "service" }>, customer);
+      const slot = patchSlot(makeSlot(), { phase: withCustomer, inventory: inv });
+      const store = addSlot(createSaveStore(), slot);
+      const result = deserializeStore(serializeStore(store));
+      expect(result).toBeDefined();
+      const restoredPhase = result!.slots[0].phase;
+      expect(restoredPhase).toBeDefined();
+      expect(restoredPhase?.tag).toBe("service");
+      if (restoredPhase?.tag === "service") {
+        expect(restoredPhase.customerQueue).toHaveLength(1);
+        expect(restoredPhase.customerQueue[0].id).toBe("c1");
+      }
+    });
+
+    it("roundtrips day_end phase", () => {
+      const slot = patchSlot(makeSlot(), { phase: dayEndPhase });
+      const store = addSlot(createSaveStore(), slot);
+      const result = deserializeStore(serializeStore(store));
+      expect(result!.slots[0].phase).toEqual(dayEndPhase);
+    });
+
+    it("old saves without phase/inventory deserialize with both undefined", () => {
+      const oldJson = JSON.stringify({
+        version: 2,
+        slots: [{
+          id: "old-slot",
+          restaurantType: "burger",
+          day: 3,
+          coins: 50,
+          scene: "GroceryScene",
+          lastSaved: 1000,
+          unlockedDishes: 3,
+        }],
+      });
+      const result = deserializeStore(oldJson);
+      expect(result).toBeDefined();
+      expect(result!.slots[0].phase).toBeUndefined();
+      expect(result!.slots[0].inventory).toBeUndefined();
+    });
+
+    it("omits empty inventory from serialization", () => {
+      const slot = patchSlot(makeSlot(), { phase: groceryPhase, inventory: createInventory() });
+      const store = addSlot(createSaveStore(), slot);
+      const result = deserializeStore(serializeStore(store));
+      expect(result).toBeDefined();
+      expect(result!.slots[0].inventory).toBeUndefined();
+    });
   });
 });
 

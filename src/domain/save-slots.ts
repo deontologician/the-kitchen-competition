@@ -18,6 +18,8 @@ export interface SaveSlot {
   readonly lastSaved: number;
   readonly unlockedDishes: number;
   readonly disabledDishes?: ReadonlyArray<ItemId>;
+  readonly phase?: Phase;
+  readonly inventory?: Inventory;
 }
 
 export interface SaveStore {
@@ -61,8 +63,8 @@ export interface SaveSlotPatch {
   readonly inventory?: Inventory;
 }
 
-export const patchSlot = (slot: SaveSlot, patch: SaveSlotPatch): SaveSlot =>
-  createSaveSlot(
+export const patchSlot = (slot: SaveSlot, patch: SaveSlotPatch): SaveSlot => {
+  const base = createSaveSlot(
     slot.id,
     slot.restaurantType,
     patch.day ?? slot.day,
@@ -72,6 +74,14 @@ export const patchSlot = (slot: SaveSlot, patch: SaveSlotPatch): SaveSlot =>
     patch.unlockedDishes ?? slot.unlockedDishes,
     patch.disabledDishes !== undefined ? patch.disabledDishes : slot.disabledDishes
   );
+  const phase = patch.phase !== undefined ? patch.phase : slot.phase;
+  const inventory = patch.inventory !== undefined ? patch.inventory : slot.inventory;
+  return {
+    ...base,
+    ...(phase !== undefined ? { phase } : {}),
+    ...(inventory !== undefined && inventory.items.length > 0 ? { inventory } : {}),
+  };
+};
 
 export const toggleDish = (
   slot: SaveSlot,
@@ -144,6 +154,19 @@ const isValidSlot = (s: unknown): s is SaveSlot => {
   );
 };
 
+const isValidPhase = (p: unknown): p is Phase => {
+  if (typeof p !== "object" || p === null) return false;
+  const rec = p as Record<string, unknown>;
+  const tag = rec.tag;
+  return tag === "grocery" || tag === "kitchen_prep" || tag === "service" || tag === "day_end";
+};
+
+const isValidInventory = (inv: unknown): inv is Inventory => {
+  if (typeof inv !== "object" || inv === null) return false;
+  const rec = inv as Record<string, unknown>;
+  return Array.isArray(rec.items);
+};
+
 export const deserializeStore = (json: string): SaveStore | undefined => {
   try {
     const parsed: unknown = JSON.parse(json);
@@ -168,7 +191,12 @@ export const deserializeStore = (json: string): SaveStore | undefined => {
           raw.disabledDishes.length > 0
             ? (raw.disabledDishes as ItemId[])
             : undefined;
-        return createSaveSlot(
+        const phase: Phase | undefined = isValidPhase(raw.phase) ? raw.phase : undefined;
+        const inventory: Inventory | undefined =
+          isValidInventory(raw.inventory) && (raw.inventory as Inventory).items.length > 0
+            ? (raw.inventory as Inventory)
+            : undefined;
+        const base = createSaveSlot(
           slotId(s.id),
           s.restaurantType,
           s.day,
@@ -178,6 +206,11 @@ export const deserializeStore = (json: string): SaveStore | undefined => {
           unlocked,
           disabled
         );
+        return {
+          ...base,
+          ...(phase !== undefined ? { phase } : {}),
+          ...(inventory !== undefined ? { inventory } : {}),
+        };
       }),
     };
   } catch {
