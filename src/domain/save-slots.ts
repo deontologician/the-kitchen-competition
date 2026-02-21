@@ -1,4 +1,4 @@
-import type { SlotId } from "./branded";
+import type { SlotId, ItemId } from "./branded";
 import { slotId } from "./branded";
 import { deserializeSave } from "./save-game";
 import type { RestaurantType } from "./restaurant-type";
@@ -15,6 +15,7 @@ export interface SaveSlot {
   readonly scene: string;
   readonly lastSaved: number;
   readonly unlockedDishes: number;
+  readonly disabledDishes?: ReadonlyArray<ItemId>;
 }
 
 export interface SaveStore {
@@ -38,8 +39,30 @@ export const createSaveSlot = (
   coins: number,
   scene: string,
   lastSaved: number,
-  unlockedDishes: number = 5
-): SaveSlot => ({ id, restaurantType, day, coins, scene, lastSaved, unlockedDishes });
+  unlockedDishes: number = 5,
+  disabledDishes?: ReadonlyArray<ItemId>
+): SaveSlot => {
+  const base: SaveSlot = { id, restaurantType, day, coins, scene, lastSaved, unlockedDishes };
+  return disabledDishes !== undefined && disabledDishes.length > 0
+    ? { ...base, disabledDishes }
+    : base;
+};
+
+export const toggleDish = (
+  slot: SaveSlot,
+  dishId: ItemId,
+  allEnabled: ReadonlyArray<ItemId>
+): SaveSlot => {
+  const disabled = slot.disabledDishes ?? [];
+  const isCurrentlyDisabled = disabled.includes(dishId);
+  if (isCurrentlyDisabled) {
+    // Re-enable: remove from disabled list
+    return { ...slot, disabledDishes: disabled.filter((id) => id !== dishId) };
+  }
+  // Disable: only if at least 2 are currently enabled
+  if (allEnabled.length < 2) return slot;
+  return { ...slot, disabledDishes: [...disabled, dishId] };
+};
 
 export const createSaveStore = (): SaveStore => ({
   version: 2,
@@ -114,6 +137,12 @@ export const deserializeStore = (json: string): SaveStore | undefined => {
           raw.unlockedDishes >= 1
             ? raw.unlockedDishes
             : 5;
+        const disabled: ReadonlyArray<ItemId> | undefined =
+          Array.isArray(raw.disabledDishes) &&
+          raw.disabledDishes.every((d: unknown) => typeof d === "string") &&
+          raw.disabledDishes.length > 0
+            ? (raw.disabledDishes as ItemId[])
+            : undefined;
         return createSaveSlot(
           slotId(s.id),
           s.restaurantType,
@@ -121,7 +150,8 @@ export const deserializeStore = (json: string): SaveStore | undefined => {
           s.coins,
           s.scene,
           s.lastSaved,
-          unlocked
+          unlocked,
+          disabled
         );
       }),
     };

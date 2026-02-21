@@ -14,11 +14,12 @@ import {
   sceneDisplayName,
   restaurantDisplayName,
   formatSlotSummary,
+  toggleDish,
   type SaveSlot,
   type SaveStore,
   type RestaurantType,
 } from "../save-slots";
-import { slotId } from "../branded";
+import { slotId, itemId } from "../branded";
 
 const makeSlot = (overrides: Partial<SaveSlot> = {}): SaveSlot =>
   createSaveSlot(
@@ -467,6 +468,83 @@ describe("unlockedDishes", () => {
     const v1 = JSON.stringify({ version: 1, coins: 42 });
     const result = loadStore(v1, slotId("migrated-id"), 5000);
     expect(result.slots[0].unlockedDishes).toBe(5);
+  });
+});
+
+// --- toggleDish ---
+
+describe("toggleDish", () => {
+  const burger1 = itemId("classic-burger");
+  const burger2 = itemId("cheeseburger");
+  const burger3 = itemId("chicken-sandwich");
+  const allThree = [burger1, burger2, burger3] as const;
+
+  it("disables an enabled dish", () => {
+    const slot = makeSlot();
+    const updated = toggleDish(slot, burger2, [...allThree]);
+    expect(updated.disabledDishes).toContain(burger2);
+  });
+
+  it("re-enables a disabled dish", () => {
+    const slot = makeSlot();
+    const withDisabled = toggleDish(slot, burger2, [...allThree]);
+    const reEnabled = toggleDish(withDisabled, burger2, [burger1, burger3]);
+    expect(reEnabled.disabledDishes).not.toContain(burger2);
+  });
+
+  it("cannot disable the last remaining enabled dish", () => {
+    const slot = makeSlot();
+    const updated = toggleDish(slot, burger1, [burger1]);
+    expect(updated).toEqual(slot);
+  });
+
+  it("slot with no disabledDishes behaves as all-enabled (can disable)", () => {
+    const slot = makeSlot(); // disabledDishes is undefined
+    const updated = toggleDish(slot, burger2, [...allThree]);
+    expect(updated.disabledDishes).toContain(burger2);
+    expect(updated.disabledDishes?.length).toBe(1);
+  });
+
+  it("does not affect other fields", () => {
+    const slot = makeSlot({ coins: 42, day: 7 });
+    const updated = toggleDish(slot, burger2, [...allThree]);
+    expect(updated.coins).toBe(42);
+    expect(updated.day).toBe(7);
+    expect(updated.id).toBe(slot.id);
+  });
+
+  it("toggling twice returns to original enabled state", () => {
+    const slot = makeSlot();
+    const disabled = toggleDish(slot, burger2, [...allThree]);
+    const reEnabled = toggleDish(disabled, burger2, [burger1, burger3]);
+    expect(reEnabled.disabledDishes ?? []).not.toContain(burger2);
+  });
+
+  it("disabledDishes roundtrips through serialize/deserialize", () => {
+    const slot = makeSlot();
+    const withDisabled = toggleDish(slot, burger2, [...allThree]);
+    const store = addSlot(createSaveStore(), withDisabled);
+    const result = deserializeStore(serializeStore(store));
+    expect(result).toBeDefined();
+    expect(result!.slots[0].disabledDishes).toContain(burger2);
+  });
+
+  it("old saves without disabledDishes deserialize with disabledDishes=[]", () => {
+    const oldJson = JSON.stringify({
+      version: 2,
+      slots: [{
+        id: "old-slot",
+        restaurantType: "burger",
+        day: 3,
+        coins: 50,
+        scene: "GroceryScene",
+        lastSaved: 1000,
+        unlockedDishes: 3,
+      }],
+    });
+    const result = deserializeStore(oldJson);
+    expect(result).toBeDefined();
+    expect(result!.slots[0].disabledDishes ?? []).toEqual([]);
   });
 });
 
