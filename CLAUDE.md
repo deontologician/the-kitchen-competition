@@ -4,6 +4,10 @@
 
 A restaurant management game built with Phaser 3 + TypeScript + Vite. Players compete by running different restaurant types through a core day loop: shop for ingredients (30s grocery phase), prep in the kitchen (30s), then serve customers at the restaurant (120s service phase with order → cook → serve sub-cycle). Each day ends with an earnings summary (5 coins per customer served), then the next day starts.
 
+## Roadmap
+
+Future features, improvements, and known bugs are tracked in [`PLANNING.md`](PLANNING.md).
+
 ## Architecture: Domain / Rendering Split
 
 - **`src/domain/`** — Pure TypeScript game logic. **Zero Phaser imports.** This is what we TDD.

@@ -12,6 +12,10 @@ const config: Phaser.Types.Core.GameConfig = {
   height: 600,
   backgroundColor: "#1d1d2e",
   pixelArt: true,
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.NO_CENTER,
+  },
   scene: [TitleScene, GroceryScene, KitchenScene, RestaurantScene, LoadGameScene, PauseScene],
 };
 
