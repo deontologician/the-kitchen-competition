@@ -189,7 +189,10 @@ export class RestaurantScene extends Phaser.Scene {
       loop: true,
     });
 
-    this.time.delayedCall(2_000, () => this.spawnCustomer());
+    // Skip initial spawn if loading into a service phase with existing customers
+    if (cycle.phase.customerQueue.length === 0) {
+      this.time.delayedCall(2_000, () => this.spawnCustomer());
+    }
   }
 
   update(_time: number, delta: number): void {
