@@ -7,7 +7,6 @@ import {
   type Wallet,
 } from "../domain/wallet";
 import { recordSceneEntry } from "./saveHelpers";
-import { showTutorialHint } from "./tutorialHint";
 import { renderTimerBar } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
@@ -126,8 +125,6 @@ export class GroceryScene extends Phaser.Scene {
 
     this.renderItemGrid();
     this.renderCoinHud();
-    showTutorialHint(this, "grocery");
-
     // Menu toggle button (top-left)
     const menuBtnX = 60;
     const menuBtnY = 20;

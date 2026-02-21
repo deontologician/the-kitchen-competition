@@ -3,7 +3,6 @@ import { renderPixelText, addMenuButton } from "./renderPixelText";
 import { initialWallet, formatCoins, addCoins, type Wallet } from "../domain/wallet";
 import { measureLineWidth, createDefaultLayoutConfig } from "../domain/pixel-font";
 import { recordSceneEntry } from "./saveHelpers";
-import { showTutorialHint } from "./tutorialHint";
 import { renderTimerBar } from "./timerBar";
 import { renderPanel } from "./panel";
 import {
@@ -191,7 +190,6 @@ export class RestaurantScene extends Phaser.Scene {
     });
 
     this.time.delayedCall(2_000, () => this.spawnCustomer());
-    showTutorialHint(this, "service");
   }
 
   update(_time: number, delta: number): void {
