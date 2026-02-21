@@ -5,7 +5,7 @@ import {
   createKitchenServiceState,
   addOrderToKitchen,
   pickupFromOrderUp,
-  tickKitchenStations,
+  tickKitchenService,
   isKitchenIdle,
 } from "./kitchen-service";
 
@@ -482,33 +482,23 @@ export const removeExpiredCustomers = (
  * Combined service phase tick:
  * 1. Tick all customer patience
  * 2. Remove expired customers
- * 3. Tick kitchen stations
- * 4. Notify tables for newly completed orders
+ * 3. Tick kitchen zones
+ *
+ * Note: table notification (in_kitchen → ready_to_serve) is scene-driven.
+ * Call notifyOrderReady explicitly after assembleOrder.
  */
 export const tickServicePhase = (
   phase: ServicePhase,
   delta: number
 ): ServicePhase => {
-  const prevOrderUpIds = new Set(phase.kitchen.orderUp.map((o) => o.id));
-
   // 1 + 2: patience + expiry
   const afterPatience = tickCustomerPatience(phase, delta);
   const afterExpiry = removeExpiredCustomers(afterPatience);
 
-  // 3: kitchen stations
-  const newKitchen = tickKitchenStations(afterExpiry.kitchen, delta);
+  // 3: kitchen zones
+  const newKitchen = tickKitchenService(afterExpiry.kitchen, delta);
 
-  // 4: notify tables for newly completed orders
-  const newOrderIds = newKitchen.orderUp
-    .map((o) => o.id)
-    .filter((id) => !prevOrderUpIds.has(id));
-
-  const phaseWithKitchen = { ...afterExpiry, kitchen: newKitchen };
-
-  return newOrderIds.reduce(
-    (acc, oid) => notifyOrderReady(acc, oid),
-    phaseWithKitchen
-  );
+  return { ...afterExpiry, kitchen: newKitchen };
 };
 
 // ---------------------------------------------------------------------------

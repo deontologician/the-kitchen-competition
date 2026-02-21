@@ -1,6 +1,6 @@
 /**
- * Tests for the new FOH/BOH service phase model.
- * These test the updated day-cycle service functions with TableState[] + KitchenServiceState.
+ * Tests for the FOH/BOH service phase model.
+ * Uses zone-based KitchenServiceState with zones: KitchenZoneState.
  */
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
@@ -26,14 +26,25 @@ import {
 import {
   createKitchenServiceState,
   addOrderToKitchen,
-  startCuttingBoardWork,
-  setPlayerAtCuttingBoard,
-  startPassiveStation,
-  tickKitchenStations,
+  placeIngredientInZone,
+  activateCuttingBoard,
+  flipStove,
+  assembleOrder,
+  tickKitchenService,
   isKitchenIdle,
   pickupFromOrderUp,
   type KitchenOrder,
 } from "../kitchen-service";
+import {
+  createInventory,
+  addItem,
+  type Inventory,
+} from "../inventory";
+import {
+  placeItemInZone,
+  type KitchenZone,
+  type ZoneInteraction,
+} from "../kitchen-zones";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,6 +60,19 @@ const makeServicePhase = (tables = 4): ServicePhase => {
   return cycle.phase;
 };
 
+/** Force a zone slot into phase.kitchen.zones for testing without inventory. */
+const forceZoneSlot = (
+  phase: ServicePhase,
+  zone: KitchenZone,
+  outputItemId: string,
+  durationMs: number,
+  interaction: ZoneInteraction
+): ServicePhase => {
+  const newZones = placeItemInZone(phase.kitchen.zones, zone, itemId(outputItemId), durationMs, interaction);
+  if (newZones === undefined) throw new Error(`Zone ${zone} is full`);
+  return { ...phase, kitchen: { ...phase.kitchen, zones: newZones } };
+};
+
 // ---------------------------------------------------------------------------
 // Kitchen service state (standalone)
 // ---------------------------------------------------------------------------
@@ -57,11 +81,14 @@ describe("KitchenServiceState", () => {
   it("createKitchenServiceState returns empty state", () => {
     const k = createKitchenServiceState();
     expect(k.pendingOrders).toEqual([]);
-    expect(k.cuttingBoard.tag).toBe("idle");
-    expect(k.stove.tag).toBe("idle");
-    expect(k.oven.tag).toBe("idle");
     expect(k.orderUp).toEqual([]);
     expect(isKitchenIdle(k)).toBe(true);
+    // zones exist
+    expect(k.zones).toBeDefined();
+    expect(k.zones.cuttingBoard).toHaveLength(1);
+    expect(k.zones.stove).toHaveLength(3);
+    expect(k.zones.oven).toHaveLength(2);
+    expect(k.zones.ready).toHaveLength(0);
   });
 
   it("addOrderToKitchen pushes to pendingOrders", () => {
@@ -76,180 +103,173 @@ describe("KitchenServiceState", () => {
     expect(k2.pendingOrders[0]).toEqual(order);
   });
 
-  it("startCuttingBoardWork moves order from pending to cutting board", () => {
+  it("placeIngredientInZone consumes from inventory and places in zone", () => {
+    const k = createKitchenServiceState();
+    let inv = createInventory();
+    inv = addItem(inv, itemId("beef-patty"), Date.now());
+
+    const result = placeIngredientInZone(k, inv, itemId("beef-patty"), itemId("grilled-patty"), "stove", 5000, "flip");
+    expect(result).toBeDefined();
+    expect(result!.kitchen.zones.stove[0].tag).toBe("working");
+    // input consumed from inventory
+    expect(result!.inventory.items.filter((i) => i.itemId === itemId("beef-patty"))).toHaveLength(0);
+  });
+
+  it("placeIngredientInZone returns undefined if input not in inventory", () => {
+    const k = createKitchenServiceState();
+    const inv = createInventory(); // empty
+    const result = placeIngredientInZone(k, inv, itemId("beef-patty"), itemId("grilled-patty"), "stove", 5000, "flip");
+    expect(result).toBeUndefined();
+  });
+
+  it("placeIngredientInZone returns undefined if zone is full", () => {
+    let k = createKitchenServiceState();
+    let inv = createInventory();
+    const now = Date.now();
+    // Fill cutting board (capacity=1)
+    inv = addItem(inv, itemId("lettuce"), now);
+    inv = addItem(inv, itemId("tomato"), now);
+
+    const r1 = placeIngredientInZone(k, inv, itemId("lettuce"), itemId("shredded-lettuce"), "cuttingBoard", 2000, "hold");
+    expect(r1).toBeDefined();
+    k = r1!.kitchen;
+    inv = r1!.inventory;
+
+    const r2 = placeIngredientInZone(k, inv, itemId("tomato"), itemId("sliced-tomato"), "cuttingBoard", 2000, "hold");
+    expect(r2).toBeUndefined();
+  });
+
+  it("activateCuttingBoard delegates to activateCuttingBoardSlot", () => {
+    let k = createKitchenServiceState();
+    let inv = createInventory();
+    inv = addItem(inv, itemId("lettuce"), Date.now());
+    const r = placeIngredientInZone(k, inv, itemId("lettuce"), itemId("shredded-lettuce"), "cuttingBoard", 2000, "hold");
+    expect(r).toBeDefined();
+    k = r!.kitchen;
+
+    const activated = activateCuttingBoard(k, 0, true);
+    const slot = activated.zones.cuttingBoard[0];
+    expect(slot.tag).toBe("working");
+    if (slot.tag === "working") {
+      expect(slot.isActive).toBe(true);
+    }
+  });
+
+  it("flipStove delegates to flipStoveSlot", () => {
+    let k = createKitchenServiceState();
+    let inv = createInventory();
+    inv = addItem(inv, itemId("beef-patty"), Date.now());
+    const r = placeIngredientInZone(k, inv, itemId("beef-patty"), itemId("grilled-patty"), "stove", 5000, "flip");
+    expect(r).toBeDefined();
+    k = r!.kitchen;
+
+    // Tick to needs_flip
+    k = tickKitchenService(k, 2500);
+    expect(k.zones.stove[0].tag).toBe("needs_flip");
+
+    const flipped = flipStove(k, 0);
+    expect(flipped.zones.stove[0].tag).toBe("working");
+  });
+
+  it("tickKitchenService advances zones and produces ready items", () => {
+    let k = createKitchenServiceState();
+    let inv = createInventory();
+    inv = addItem(inv, itemId("smoked-pork"), Date.now());
+    // Place in oven (auto)
+    const r = placeIngredientInZone(k, inv, itemId("smoked-pork"), itemId("smoked-pork"), "oven", 1000, "auto");
+    expect(r).toBeDefined();
+    k = r!.kitchen;
+
+    k = tickKitchenService(k, 1001);
+    expect(k.zones.ready).toContain(itemId("smoked-pork"));
+  });
+
+  it("assembleOrder takes ready + inventory items → orderUp", () => {
+    let k = createKitchenServiceState();
+    let inv = createInventory();
+    const now = Date.now();
+    const oid = orderId("o1");
+
+    // Add order
     const order: KitchenOrder = {
-      id: orderId("o1"),
+      id: oid,
       customerId: customerId("c1"),
       dishId: itemId("classic-burger"),
     };
-    const k = addOrderToKitchen(createKitchenServiceState(), order);
-    const k2 = startCuttingBoardWork(k, orderId("o1"), 5_000);
+    k = addOrderToKitchen(k, order);
 
-    expect(k2.pendingOrders).toHaveLength(0);
-    expect(k2.cuttingBoard.tag).toBe("working");
-    if (k2.cuttingBoard.tag === "working") {
-      expect(k2.cuttingBoard.order.id).toBe(orderId("o1"));
-      expect(k2.cuttingBoard.isPlayerActive).toBe(false);
-      expect(k2.cuttingBoard.progressMs).toBe(0);
-      expect(k2.cuttingBoard.durationMs).toBe(5_000);
-    }
+    // classic-burger inputs: bun(raw), grilled-patty(prepped), shredded-lettuce(prepped), sliced-tomato(prepped)
+    // Provide raw items in inventory
+    inv = addItem(inv, itemId("bun"), now);
+    // Provide prepped items in zones.ready (force them in)
+    k = { ...k, zones: { ...k.zones, ready: [itemId("grilled-patty"), itemId("shredded-lettuce"), itemId("sliced-tomato")] } };
+
+    const result = assembleOrder(k, inv, oid);
+    expect(result).toBeDefined();
+    expect(result!.kitchen.orderUp).toHaveLength(1);
+    expect(result!.kitchen.orderUp[0].id).toBe(oid);
+    // bun consumed from inventory
+    expect(result!.inventory.items.filter((i) => i.itemId === itemId("bun"))).toHaveLength(0);
+    // prepped items removed from ready
+    expect(result!.kitchen.zones.ready).not.toContain(itemId("grilled-patty"));
+    // order removed from pendingOrders
+    expect(result!.kitchen.pendingOrders).toHaveLength(0);
   });
 
-  it("startCuttingBoardWork does nothing if cutting board not idle", () => {
-    const o1: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    const o2: KitchenOrder = { id: orderId("o2"), customerId: customerId("c2"), dishId: itemId("dish-b") };
-    let k = addOrderToKitchen(createKitchenServiceState(), o1);
-    k = addOrderToKitchen(k, o2);
-    k = startCuttingBoardWork(k, orderId("o1"), 5_000);
-    const k2 = startCuttingBoardWork(k, orderId("o2"), 5_000); // already busy
-    expect(k2.pendingOrders).toHaveLength(1); // o2 still pending
-    expect(k2.cuttingBoard.tag).toBe("working");
-  });
-
-  it("setPlayerAtCuttingBoard toggles isPlayerActive", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startCuttingBoardWork(k, orderId("o1"), 5_000);
-
-    const active = setPlayerAtCuttingBoard(k, true);
-    expect(active.cuttingBoard.tag === "working" && active.cuttingBoard.isPlayerActive).toBe(true);
-
-    const inactive = setPlayerAtCuttingBoard(active, false);
-    expect(inactive.cuttingBoard.tag === "working" && inactive.cuttingBoard.isPlayerActive).toBe(false);
-  });
-
-  it("setPlayerAtCuttingBoard does nothing when station is idle", () => {
+  it("assembleOrder returns undefined if components missing", () => {
     const k = createKitchenServiceState();
-    const k2 = setPlayerAtCuttingBoard(k, true);
-    expect(k2.cuttingBoard.tag).toBe("idle");
-  });
+    const inv = createInventory(); // empty
+    const oid = orderId("o1");
+    const order: KitchenOrder = {
+      id: oid,
+      customerId: customerId("c1"),
+      dishId: itemId("classic-burger"),
+    };
+    const k2 = addOrderToKitchen(k, order);
 
-  it("startPassiveStation moves order to stove", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startPassiveStation(k, "stove", orderId("o1"), 15_000);
-
-    expect(k.pendingOrders).toHaveLength(0);
-    expect(k.stove.tag).toBe("working");
-    if (k.stove.tag === "working") {
-      expect(k.stove.order.id).toBe(orderId("o1"));
-      expect(k.stove.durationMs).toBe(15_000);
-    }
-  });
-
-  it("startPassiveStation moves order to oven", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startPassiveStation(k, "oven", orderId("o1"), 20_000);
-
-    expect(k.oven.tag).toBe("working");
-  });
-
-  it("cutting board only advances when isPlayerActive", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startCuttingBoardWork(k, orderId("o1"), 5_000);
-
-    // Not active — should not advance
-    const k2 = tickKitchenStations(k, 2_000);
-    expect(k2.cuttingBoard.tag).toBe("working");
-    if (k2.cuttingBoard.tag === "working") {
-      expect(k2.cuttingBoard.progressMs).toBe(0);
-    }
-
-    // Active — should advance
-    const kActive = setPlayerAtCuttingBoard(k, true);
-    const k3 = tickKitchenStations(kActive, 2_000);
-    expect(k3.cuttingBoard.tag).toBe("working");
-    if (k3.cuttingBoard.tag === "working") {
-      expect(k3.cuttingBoard.progressMs).toBe(2_000);
-    }
-  });
-
-  it("cutting board moves to orderUp when done", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startCuttingBoardWork(k, orderId("o1"), 3_000);
-    k = setPlayerAtCuttingBoard(k, true);
-    k = tickKitchenStations(k, 4_000); // exceeds duration
-
-    expect(k.cuttingBoard.tag).toBe("idle");
-    expect(k.orderUp).toHaveLength(1);
-    expect(k.orderUp[0].id).toBe(orderId("o1"));
-  });
-
-  it("stove always advances regardless of player", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startPassiveStation(k, "stove", orderId("o1"), 15_000);
-
-    const k2 = tickKitchenStations(k, 5_000);
-    expect(k2.stove.tag).toBe("working");
-    if (k2.stove.tag === "working") {
-      expect(k2.stove.progressMs).toBe(5_000);
-    }
-  });
-
-  it("stove moves to orderUp when done", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startPassiveStation(k, "stove", orderId("o1"), 5_000);
-    k = tickKitchenStations(k, 6_000);
-
-    expect(k.stove.tag).toBe("idle");
-    expect(k.orderUp).toHaveLength(1);
-    expect(k.orderUp[0].id).toBe(orderId("o1"));
-  });
-
-  it("oven auto-advances and moves to orderUp when done", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startPassiveStation(k, "oven", orderId("o1"), 10_000);
-    k = tickKitchenStations(k, 11_000);
-
-    expect(k.oven.tag).toBe("idle");
-    expect(k.orderUp).toHaveLength(1);
+    const result = assembleOrder(k2, inv, oid);
+    expect(result).toBeUndefined();
   });
 
   it("pickupFromOrderUp removes the order", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
+    const oid = orderId("o1");
+    const order: KitchenOrder = { id: oid, customerId: customerId("c1"), dishId: itemId("dish-a") };
     let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startPassiveStation(k, "stove", orderId("o1"), 5_000);
-    k = tickKitchenStations(k, 6_000);
+    // Force to orderUp directly
+    k = { ...k, orderUp: [order], pendingOrders: [] };
     expect(k.orderUp).toHaveLength(1);
 
-    const k2 = pickupFromOrderUp(k, orderId("o1"));
+    const k2 = pickupFromOrderUp(k, oid);
     expect(k2.orderUp).toHaveLength(0);
     expect(isKitchenIdle(k2)).toBe(true);
   });
 
-  it("isKitchenIdle returns false when cutting board is working", () => {
-    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    let k = addOrderToKitchen(createKitchenServiceState(), order);
-    k = startCuttingBoardWork(k, orderId("o1"), 5_000);
-    expect(isKitchenIdle(k)).toBe(false);
-  });
-
-  it("isKitchenIdle returns false when orders are pending", () => {
+  it("isKitchenIdle returns false when pendingOrders exist", () => {
     const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
     const k = addOrderToKitchen(createKitchenServiceState(), order);
     expect(isKitchenIdle(k)).toBe(false);
   });
 
-  it("multiple stations can run simultaneously", () => {
-    const o1: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
-    const o2: KitchenOrder = { id: orderId("o2"), customerId: customerId("c2"), dishId: itemId("dish-b") };
-    let k = addOrderToKitchen(createKitchenServiceState(), o1);
-    k = addOrderToKitchen(k, o2);
-    k = startPassiveStation(k, "stove", orderId("o1"), 5_000);
-    k = startPassiveStation(k, "oven", orderId("o2"), 10_000);
+  it("isKitchenIdle returns false when zone has working slot", () => {
+    let k = createKitchenServiceState();
+    let inv = createInventory();
+    inv = addItem(inv, itemId("beef-patty"), Date.now());
+    const r = placeIngredientInZone(k, inv, itemId("beef-patty"), itemId("grilled-patty"), "stove", 5000, "flip");
+    k = r!.kitchen;
+    expect(isKitchenIdle(k)).toBe(false);
+  });
 
-    k = tickKitchenStations(k, 5_500);
-    // stove done, oven still working
-    expect(k.stove.tag).toBe("idle");
-    expect(k.oven.tag).toBe("working");
-    expect(k.orderUp).toHaveLength(1);
-    expect(k.orderUp[0].id).toBe(orderId("o1"));
+  it("isKitchenIdle returns false when ready pile has items", () => {
+    let k = createKitchenServiceState();
+    k = { ...k, zones: { ...k.zones, ready: [itemId("grilled-patty")] } };
+    expect(isKitchenIdle(k)).toBe(false);
+  });
+
+  it("isKitchenIdle returns false when orderUp has items", () => {
+    const order: KitchenOrder = { id: orderId("o1"), customerId: customerId("c1"), dishId: itemId("dish-a") };
+    let k = createKitchenServiceState();
+    k = { ...k, orderUp: [order] };
+    expect(isKitchenIdle(k)).toBe(false);
   });
 });
 
@@ -328,7 +348,6 @@ describe("ServicePhase table states", () => {
     if (phase.tables[0].tag === "in_kitchen") {
       expect(phase.tables[0].orderId).toBe(oid);
     }
-    // Order should be in kitchen.pendingOrders
     expect(phase.kitchen.pendingOrders).toHaveLength(1);
     expect(phase.kitchen.pendingOrders[0].id).toBe(oid);
     expect(phase.kitchen.pendingOrders[0].dishId).toBe(itemId("classic-burger"));
@@ -380,7 +399,6 @@ describe("ServicePhase table states", () => {
     expect(phase.tables[0].tag).toBe("empty");
     expect(phase.customersServed).toBe(1);
     expect(phase.earnings).toBe(8);
-    // Order removed from kitchen.orderUp
     expect(phase.kitchen.orderUp).toHaveLength(0);
   });
 
@@ -405,7 +423,6 @@ describe("ServicePhase table states", () => {
     phase = { ...phase, kitchen: { ...phase.kitchen, orderUp: [{ id: oid, customerId: customerId("c1"), dishId: itemId("classic-burger") }] } };
     phase = serveOrder(phase, 0, 5);
 
-    // c2 from queue should now be seated
     expect(phase.tables[0].tag).toBe("customer_waiting");
     if (phase.tables[0].tag === "customer_waiting") {
       expect(phase.tables[0].customer.id).toBe(customerId("c2"));
@@ -431,7 +448,6 @@ describe("ServicePhase table states", () => {
     phase = notifyOrderReady(phase, oid);
     expect(phase.tables[0].tag).toBe("ready_to_serve");
 
-    // add to orderUp for the serveOrder to remove from
     phase = { ...phase, kitchen: { ...phase.kitchen, orderUp: [{ id: oid, customerId: customerId("c1"), dishId: itemId("classic-burger") }] } };
     phase = serveOrder(phase, 0, 8);
     expect(phase.tables[0].tag).toBe("empty");
@@ -516,9 +532,7 @@ describe("tickServicePhase", () => {
     phase = takeOrder(phase, 0);
     phase = sendOrderToKitchen(phase, 0, orderId("o1"));
     phase = notifyOrderReady(phase, orderId("o1"));
-    // Table is ready_to_serve — patience should not tick
     const updated = tickServicePhase(phase, 5_000);
-    // ready_to_serve tables don't have a customer property to check patience on
     expect(updated.tables[0].tag).toBe("ready_to_serve");
   });
 
@@ -535,7 +549,7 @@ describe("tickServicePhase", () => {
   it("removes expired customers from overflow queue", () => {
     let phase = makeServicePhase(1);
     const c1 = createCustomer(customerId("c1"), itemId("classic-burger"), 30_000);
-    const c2 = createCustomer(customerId("c2"), itemId("cheeseburger"), 1_000); // short patience
+    const c2 = createCustomer(customerId("c2"), itemId("cheeseburger"), 1_000);
     phase = enqueueCustomer(phase, c1);
     phase = enqueueCustomer(phase, c2); // c2 goes to queue
 
@@ -544,40 +558,40 @@ describe("tickServicePhase", () => {
     expect(updated.customersLost).toBe(1);
   });
 
-  it("ticks kitchen stations as part of service tick", () => {
+  it("ticks kitchen zones as part of service tick", () => {
     let phase = makeServicePhase();
     const c1 = createCustomer(customerId("c1"), itemId("classic-burger"), 30_000);
     phase = enqueueCustomer(phase, c1);
     phase = takeOrder(phase, 0);
     phase = sendOrderToKitchen(phase, 0, orderId("o1"));
 
-    // Start order on stove (duration 15s)
-    phase = { ...phase, kitchen: startPassiveStation(phase.kitchen, "stove", orderId("o1"), 15_000) };
+    // Force a zone slot (auto oven) to test zone ticking
+    phase = forceZoneSlot(phase, "oven", "smoked-pork", 15_000, "auto");
 
     const updated = tickServicePhase(phase, 5_000);
-    expect(updated.kitchen.stove.tag).toBe("working");
-    if (updated.kitchen.stove.tag === "working") {
-      expect(updated.kitchen.stove.progressMs).toBe(5_000);
+    // Zone should have advanced
+    const slot = updated.kitchen.zones.oven[0];
+    expect(slot.tag).toBe("working");
+    if (slot.tag === "working") {
+      expect(slot.progressMs).toBe(5_000);
     }
   });
 
-  it("tickServicePhase notifies table when order completes on stove", () => {
+  it("tickServicePhase does NOT auto-notify table when zone item completes (notification is scene-driven)", () => {
     let phase = makeServicePhase();
     const c1 = createCustomer(customerId("c1"), itemId("classic-burger"), 30_000);
     phase = enqueueCustomer(phase, c1);
     phase = takeOrder(phase, 0);
     phase = sendOrderToKitchen(phase, 0, orderId("o1"));
 
-    // Start order on stove (duration 5s)
-    phase = { ...phase, kitchen: startPassiveStation(phase.kitchen, "stove", orderId("o1"), 5_000) };
+    // Force a zone slot (auto oven, short duration)
+    phase = forceZoneSlot(phase, "oven", "smoked-pork", 1_000, "auto");
 
-    const updated = tickServicePhase(phase, 6_000); // stove completes
-    // Table should be ready_to_serve
-    expect(updated.tables[0].tag).toBe("ready_to_serve");
-    // Kitchen orderUp should be populated then consumed
-    // Actually notifyOrderReady doesn't remove from orderUp, just marks table
-    // orderUp is removed when serveOrder is called
-    expect(updated.kitchen.orderUp).toHaveLength(1);
+    const updated = tickServicePhase(phase, 2_000); // zone completes
+    // Table should still be in_kitchen (no auto-notification)
+    expect(updated.tables[0].tag).toBe("in_kitchen");
+    // Ready pile has the item
+    expect(updated.kitchen.zones.ready).toContain(itemId("smoked-pork"));
   });
 
   it("ticks patience simultaneously for all occupied tables", () => {
@@ -590,7 +604,6 @@ describe("tickServicePhase", () => {
     phase = enqueueCustomer(phase, c3);
 
     const updated = tickServicePhase(phase, 5_000);
-    // All patience ticked simultaneously
     if (updated.tables[0].tag === "customer_waiting")
       expect(updated.tables[0].customer.patienceMs).toBe(25_000);
     if (updated.tables[1].tag === "customer_waiting")
@@ -647,6 +660,12 @@ describe("isRestaurantIdle (new model)", () => {
     phase = takeOrder(phase, 0);
     phase = sendOrderToKitchen(phase, 0, orderId("o1"));
     phase = notifyOrderReady(phase, orderId("o1"));
+    expect(isRestaurantIdle(phase)).toBe(false);
+  });
+
+  it("returns false when kitchen zones have items in ready pile", () => {
+    let phase = makeServicePhase();
+    phase = { ...phase, kitchen: { ...phase.kitchen, zones: { ...phase.kitchen.zones, ready: [itemId("grilled-patty")] } } };
     expect(isRestaurantIdle(phase)).toBe(false);
   });
 });
@@ -709,7 +728,6 @@ describe("service phase property tests", () => {
             phase = enqueueCustomer(phase, c);
           });
           const after = tickServicePhase(phase, 1); // expire all
-          // All customers lost, no active
           expect(after.customersLost).toBe(n);
           expect(after.customersServed).toBe(0);
           after.tables.forEach((t) => expect(t.tag).toBe("empty"));

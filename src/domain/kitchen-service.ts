@@ -1,45 +1,31 @@
 import type { OrderId, ItemId } from "./branded";
+import { findItem } from "./items";
+import { findRecipe } from "./recipes";
+import { removeItems, removeItemSet, type Inventory } from "./inventory";
+import {
+  createKitchenZoneState,
+  placeItemInZone,
+  activateCuttingBoardSlot,
+  flipStoveSlot,
+  tickKitchenZones,
+  type KitchenZoneState,
+  type KitchenZone,
+  type ZoneInteraction,
+} from "./kitchen-zones";
 
-// Re-export Order interface is defined in day-cycle, but to avoid circular
-// deps we define a minimal Order shape here.
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 export interface KitchenOrder {
   readonly id: OrderId;
   readonly customerId: string;
   readonly dishId: ItemId;
 }
 
-// ---------------------------------------------------------------------------
-// Station types
-// ---------------------------------------------------------------------------
-
-export type CuttingBoardStation =
-  | { readonly tag: "idle" }
-  | {
-      readonly tag: "working";
-      readonly order: KitchenOrder;
-      readonly progressMs: number;
-      readonly durationMs: number;
-      readonly isPlayerActive: boolean;
-    }
-  | { readonly tag: "done"; readonly order: KitchenOrder };
-
-export type PassiveStation =
-  | { readonly tag: "idle" }
-  | {
-      readonly tag: "working";
-      readonly order: KitchenOrder;
-      readonly progressMs: number;
-      readonly durationMs: number;
-    }
-  | { readonly tag: "done"; readonly order: KitchenOrder };
-
-export type PassiveStationName = "stove" | "oven";
-
 export interface KitchenServiceState {
   readonly pendingOrders: ReadonlyArray<KitchenOrder>;
-  readonly cuttingBoard: CuttingBoardStation;
-  readonly stove: PassiveStation;
-  readonly oven: PassiveStation;
+  readonly zones: KitchenZoneState;
   readonly orderUp: ReadonlyArray<KitchenOrder>;
 }
 
@@ -49,9 +35,7 @@ export interface KitchenServiceState {
 
 export const createKitchenServiceState = (): KitchenServiceState => ({
   pendingOrders: [],
-  cuttingBoard: { tag: "idle" },
-  stove: { tag: "idle" },
-  oven: { tag: "idle" },
+  zones: createKitchenZoneState(),
   orderUp: [],
 });
 
@@ -76,59 +60,125 @@ export const pickupFromOrderUp = (
 });
 
 // ---------------------------------------------------------------------------
-// Station assignment
+// Zone interactions
 // ---------------------------------------------------------------------------
 
-export const startCuttingBoardWork = (
+/**
+ * Consume inputItemId from inventory, place outputItemId in zone.
+ * Returns undefined if input not in inventory or zone is full.
+ */
+export const placeIngredientInZone = (
   kitchen: KitchenServiceState,
-  orderId: OrderId,
-  durationMs: number
-): KitchenServiceState => {
-  const order = kitchen.pendingOrders.find((o) => o.id === orderId);
-  if (order === undefined) return kitchen;
-  if (kitchen.cuttingBoard.tag !== "idle") return kitchen;
+  inventory: Inventory,
+  inputItemId: ItemId,
+  outputItemId: ItemId,
+  zone: KitchenZone,
+  durationMs: number,
+  interaction: ZoneInteraction
+): { kitchen: KitchenServiceState; inventory: Inventory } | undefined => {
+  const newInventory = removeItems(inventory, inputItemId, 1);
+  if (newInventory === undefined) return undefined;
+
+  const newZones = placeItemInZone(kitchen.zones, zone, outputItemId, durationMs, interaction);
+  if (newZones === undefined) return undefined;
+
   return {
-    ...kitchen,
-    pendingOrders: kitchen.pendingOrders.filter((o) => o.id !== orderId),
-    cuttingBoard: {
-      tag: "working",
-      order,
-      progressMs: 0,
-      durationMs,
-      isPlayerActive: false,
-    },
+    kitchen: { ...kitchen, zones: newZones },
+    inventory: newInventory,
   };
 };
 
-export const setPlayerAtCuttingBoard = (
+/** Activate/deactivate a cutting board slot (hold mechanic). */
+export const activateCuttingBoard = (
   kitchen: KitchenServiceState,
+  slotIdx: number,
   active: boolean
-): KitchenServiceState => {
-  if (kitchen.cuttingBoard.tag !== "working") return kitchen;
-  return {
-    ...kitchen,
-    cuttingBoard: { ...kitchen.cuttingBoard, isPlayerActive: active },
-  };
+): KitchenServiceState => ({
+  ...kitchen,
+  zones: activateCuttingBoardSlot(kitchen.zones, slotIdx, active),
+});
+
+/** Flip a stove slot out of needs_flip. */
+export const flipStove = (
+  kitchen: KitchenServiceState,
+  slotIdx: number
+): KitchenServiceState => ({
+  ...kitchen,
+  zones: flipStoveSlot(kitchen.zones, slotIdx),
+});
+
+// ---------------------------------------------------------------------------
+// Assembly
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove prepped items from zones.ready or raw items from inventory atomically.
+ * Returns undefined if anything is missing.
+ */
+const removeFromReady = (
+  ready: ReadonlyArray<ItemId>,
+  itemId: ItemId,
+  quantity: number
+): ReadonlyArray<ItemId> | undefined => {
+  let count = 0;
+  const remaining: ItemId[] = [];
+  ready.forEach((id) => {
+    if (id === itemId && count < quantity) {
+      count++;
+    } else {
+      remaining.push(id);
+    }
+  });
+  return count === quantity ? remaining : undefined;
 };
 
-export const startPassiveStation = (
+/**
+ * Assemble an order from components:
+ * - "raw" category inputs: consumed from inventory
+ * - "prepped" category inputs: consumed from zones.ready
+ * Atomic — returns undefined if anything missing.
+ */
+export const assembleOrder = (
   kitchen: KitchenServiceState,
-  station: PassiveStationName,
-  orderId: OrderId,
-  durationMs: number
-): KitchenServiceState => {
-  const order = kitchen.pendingOrders.find((o) => o.id === orderId);
-  if (order === undefined) return kitchen;
-  if (kitchen[station].tag !== "idle") return kitchen;
+  inventory: Inventory,
+  oid: OrderId
+): { kitchen: KitchenServiceState; inventory: Inventory } | undefined => {
+  const order = kitchen.pendingOrders.find((o) => o.id === oid);
+  if (order === undefined) return undefined;
+
+  const recipe = findRecipe(order.dishId);
+  if (recipe === undefined) return undefined;
+
+  // Separate raw vs prepped inputs
+  const rawInputs = recipe.inputs.filter((inp) => {
+    const item = findItem(inp.itemId);
+    return item?.category === "raw";
+  });
+  const preppedInputs = recipe.inputs.filter((inp) => {
+    const item = findItem(inp.itemId);
+    return item?.category === "prepped";
+  });
+
+  // Atomically consume raw from inventory
+  const newInventory = removeItemSet(inventory, rawInputs);
+  if (newInventory === undefined) return undefined;
+
+  // Atomically consume prepped from zones.ready
+  let newReady: ReadonlyArray<ItemId> = kitchen.zones.ready;
+  for (const inp of preppedInputs) {
+    const result = removeFromReady(newReady, inp.itemId, inp.quantity);
+    if (result === undefined) return undefined;
+    newReady = result;
+  }
+
   return {
-    ...kitchen,
-    pendingOrders: kitchen.pendingOrders.filter((o) => o.id !== orderId),
-    [station]: {
-      tag: "working",
-      order,
-      progressMs: 0,
-      durationMs,
+    kitchen: {
+      ...kitchen,
+      pendingOrders: kitchen.pendingOrders.filter((o) => o.id !== oid),
+      zones: { ...kitchen.zones, ready: newReady },
+      orderUp: [...kitchen.orderUp, order],
     },
+    inventory: newInventory,
   };
 };
 
@@ -136,81 +186,27 @@ export const startPassiveStation = (
 // Ticking
 // ---------------------------------------------------------------------------
 
-const tickCuttingBoard = (
-  station: CuttingBoardStation,
-  delta: number
-): { station: CuttingBoardStation; completed: KitchenOrder | undefined } => {
-  if (station.tag !== "working") return { station, completed: undefined };
-  if (!station.isPlayerActive) return { station, completed: undefined };
-  const newProgress = station.progressMs + delta;
-  if (newProgress >= station.durationMs) {
-    return {
-      station: { tag: "idle" },
-      completed: station.order,
-    };
-  }
-  return {
-    station: { ...station, progressMs: newProgress },
-    completed: undefined,
-  };
-};
-
-const tickPassive = (
-  station: PassiveStation,
-  delta: number
-): { station: PassiveStation; completed: KitchenOrder | undefined } => {
-  if (station.tag !== "working") return { station, completed: undefined };
-  const newProgress = station.progressMs + delta;
-  if (newProgress >= station.durationMs) {
-    return {
-      station: { tag: "idle" },
-      completed: station.order,
-    };
-  }
-  return {
-    station: { ...station, progressMs: newProgress },
-    completed: undefined,
-  };
-};
-
-/**
- * Advance all kitchen stations by `delta` milliseconds.
- * - Cutting board only advances when `isPlayerActive === true`.
- * - Stove and oven always advance.
- * - Completed stations move their order to `orderUp`; station resets to idle.
- */
-export const tickKitchenStations = (
+/** Advance all kitchen zones by delta milliseconds. */
+export const tickKitchenService = (
   kitchen: KitchenServiceState,
   delta: number
-): KitchenServiceState => {
-  const cbResult = tickCuttingBoard(kitchen.cuttingBoard, delta);
-  const stoveResult = tickPassive(kitchen.stove, delta);
-  const ovenResult = tickPassive(kitchen.oven, delta);
-
-  const newOrders: KitchenOrder[] = [
-    ...kitchen.orderUp,
-    ...[cbResult.completed, stoveResult.completed, ovenResult.completed].filter(
-      (o): o is KitchenOrder => o !== undefined
-    ),
-  ];
-
-  return {
-    ...kitchen,
-    cuttingBoard: cbResult.station,
-    stove: stoveResult.station,
-    oven: ovenResult.station,
-    orderUp: newOrders,
-  };
-};
+): KitchenServiceState => ({
+  ...kitchen,
+  zones: tickKitchenZones(kitchen.zones, delta),
+});
 
 // ---------------------------------------------------------------------------
 // Query helpers
 // ---------------------------------------------------------------------------
 
-/** True when all stations are idle, no pending orders, and orderUp is empty. */
+const hasActiveZoneSlots = (zones: KitchenZoneState): boolean =>
+  [...zones.cuttingBoard, ...zones.stove, ...zones.oven].some(
+    (s) => s.tag === "working" || s.tag === "needs_flip"
+  );
+
+/** True when no pending orders, no active zone slots, ready pile empty, orderUp empty. */
 export const isKitchenIdle = (kitchen: KitchenServiceState): boolean =>
   kitchen.pendingOrders.length === 0 &&
-  kitchen.cuttingBoard.tag === "idle" &&
-  kitchen.stove.tag === "idle" &&
-  kitchen.oven.tag === "idle" &&
+  !hasActiveZoneSlots(kitchen.zones) &&
+  kitchen.zones.ready.length === 0 &&
   kitchen.orderUp.length === 0;
