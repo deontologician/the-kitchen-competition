@@ -12,6 +12,7 @@ import {
 import type { RecipeStep, RecipeNode } from "../recipes";
 import { findItem, allItems } from "../items";
 import { itemId } from "../branded";
+import type { KitchenZone, ZoneInteraction } from "../kitchen-zones";
 
 // ---------------------------------------------------------------------------
 // allRecipes — basic invariants
@@ -358,6 +359,79 @@ describe("spot checks", () => {
     const recipe = findRecipe(itemId("bacon-cheeseburger"));
     expect(recipe).toBeDefined();
     expect(recipe!.inputs.length).toBe(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Zone / interaction assignments
+// ---------------------------------------------------------------------------
+describe("zone and interaction assignments", () => {
+  it("cutting board prep steps have zone=cuttingBoard, interaction=hold", () => {
+    const cuttingBoardIds = [
+      "shredded-lettuce", "sliced-tomato", "sliced-onion", "beef-patty",
+      "cut-fries", "coleslaw", "seasoned-pork", "pulled-pork",
+      "seasoned-ribs", "seasoned-brisket", "sliced-brisket",
+      "seasoned-chicken", "rice-ball", "sliced-salmon", "sliced-tuna",
+      "sliced-cucumber", "sliced-avocado", "cubed-tofu",
+    ];
+    cuttingBoardIds.forEach((id) => {
+      const recipe = findRecipe(itemId(id));
+      expect(recipe, `recipe for ${id}`).toBeDefined();
+      expect((recipe as RecipeStep & { zone: KitchenZone }).zone, `zone for ${id}`).toBe("cuttingBoard");
+      expect((recipe as RecipeStep & { interaction: ZoneInteraction }).interaction, `interaction for ${id}`).toBe("hold");
+    });
+  });
+
+  it("stove flip steps have zone=stove, interaction=flip", () => {
+    const stoveFlipIds = [
+      "grilled-patty", "crispy-bacon", "french-fries",
+      "grilled-chicken", "grilled-corn", "smoked-patty",
+      "onion-rings", "tempura-shrimp",
+    ];
+    stoveFlipIds.forEach((id) => {
+      const recipe = findRecipe(itemId(id));
+      expect(recipe, `recipe for ${id}`).toBeDefined();
+      expect((recipe as RecipeStep & { zone: KitchenZone }).zone, `zone for ${id}`).toBe("stove");
+      expect((recipe as RecipeStep & { interaction: ZoneInteraction }).interaction, `interaction for ${id}`).toBe("flip");
+    });
+  });
+
+  it("stove auto steps have zone=stove, interaction=auto", () => {
+    const stoveAutoIds = ["sushi-rice", "miso-soup"];
+    stoveAutoIds.forEach((id) => {
+      const recipe = findRecipe(itemId(id));
+      expect(recipe, `recipe for ${id}`).toBeDefined();
+      expect((recipe as RecipeStep & { zone: KitchenZone }).zone, `zone for ${id}`).toBe("stove");
+      expect((recipe as RecipeStep & { interaction: ZoneInteraction }).interaction, `interaction for ${id}`).toBe("auto");
+    });
+  });
+
+  it("oven auto steps have zone=oven, interaction=auto", () => {
+    const ovenIds = ["smoked-pork", "smoked-ribs", "smoked-brisket", "smoked-chicken"];
+    ovenIds.forEach((id) => {
+      const recipe = findRecipe(itemId(id));
+      expect(recipe, `recipe for ${id}`).toBeDefined();
+      expect((recipe as RecipeStep & { zone: KitchenZone }).zone, `zone for ${id}`).toBe("oven");
+      expect((recipe as RecipeStep & { interaction: ZoneInteraction }).interaction, `interaction for ${id}`).toBe("auto");
+    });
+  });
+
+  it("assemble steps have zone=undefined, interaction=undefined", () => {
+    allRecipes()
+      .filter((r) => r.method === "assemble")
+      .forEach((r) => {
+        expect((r as RecipeStep & { zone: unknown }).zone, `zone for ${r.id}`).toBeUndefined();
+        expect((r as RecipeStep & { interaction: unknown }).interaction, `interaction for ${r.id}`).toBeUndefined();
+      });
+  });
+
+  it("all prep/cook steps have defined zone and interaction", () => {
+    allRecipes()
+      .filter((r) => r.method === "prep" || r.method === "cook")
+      .forEach((r) => {
+        expect((r as RecipeStep & { zone: unknown }).zone, `zone for ${r.id}`).toBeDefined();
+        expect((r as RecipeStep & { interaction: unknown }).interaction, `interaction for ${r.id}`).toBeDefined();
+      });
   });
 });
 

@@ -1,5 +1,6 @@
 import { type ItemId, itemId as toItemId } from "./branded";
 import { findItem } from "./items";
+import type { KitchenZone, ZoneInteraction } from "./kitchen-zones";
 
 export type RecipeMethod = "prep" | "cook" | "assemble";
 
@@ -15,6 +16,8 @@ export interface RecipeStep {
   readonly output: ItemId;
   readonly method: RecipeMethod;
   readonly timeMs: number;
+  readonly zone: KitchenZone | undefined;
+  readonly interaction: ZoneInteraction | undefined;
 }
 
 export interface RecipeNode {
@@ -33,71 +36,79 @@ const step = (
   inputs: ReadonlyArray<RecipeInput>,
   output: string,
   method: RecipeMethod,
-  timeMs: number
-): RecipeStep => ({ id: toItemId(id), name, inputs, output: toItemId(output), method, timeMs });
+  timeMs: number,
+  zone: KitchenZone | undefined,
+  interaction: ZoneInteraction | undefined,
+): RecipeStep => ({ id: toItemId(id), name, inputs, output: toItemId(output), method, timeMs, zone, interaction });
 
 const prep = (
   id: string,
   name: string,
   inputs: ReadonlyArray<RecipeInput>,
-  timeMs: number
-): RecipeStep => step(id, name, inputs, id, "prep", timeMs);
+  timeMs: number,
+  zone: KitchenZone,
+  interaction: ZoneInteraction,
+): RecipeStep => step(id, name, inputs, id, "prep", timeMs, zone, interaction);
 
 const cook = (
   id: string,
   name: string,
   inputs: ReadonlyArray<RecipeInput>,
-  timeMs: number
-): RecipeStep => step(id, name, inputs, id, "cook", timeMs);
+  timeMs: number,
+  zone: KitchenZone,
+  interaction: ZoneInteraction,
+): RecipeStep => step(id, name, inputs, id, "cook", timeMs, zone, interaction);
 
 const assemble = (
   id: string,
   name: string,
   inputs: ReadonlyArray<RecipeInput>
-): RecipeStep => step(id, name, inputs, id, "assemble", 0);
+): RecipeStep => step(id, name, inputs, id, "assemble", 0, undefined, undefined);
 
 const ALL_RECIPES: ReadonlyArray<RecipeStep> = [
   // ── Burger Prepped ────────────────────────────────────────────────────
-  prep("shredded-lettuce", "Shredded Lettuce", [inp("lettuce")], 2000),
-  prep("sliced-tomato", "Sliced Tomato", [inp("tomato")], 2000),
-  prep("sliced-onion", "Sliced Onion", [inp("onion")], 2000),
-  prep("beef-patty", "Beef Patty", [inp("ground-beef")], 3000),
-  cook("grilled-patty", "Grilled Patty", [inp("beef-patty")], 5000),
-  prep("cut-fries", "Cut Fries", [inp("potato")], 3000),
-  cook("french-fries", "French Fries", [inp("cut-fries")], 4000),
-  cook("crispy-bacon", "Crispy Bacon", [inp("bacon")], 4000),
-  cook("grilled-chicken", "Grilled Chicken", [inp("chicken-breast")], 5000),
+  prep("shredded-lettuce", "Shredded Lettuce", [inp("lettuce")], 2000, "cuttingBoard", "hold"),
+  prep("sliced-tomato", "Sliced Tomato", [inp("tomato")], 2000, "cuttingBoard", "hold"),
+  prep("sliced-onion", "Sliced Onion", [inp("onion")], 2000, "cuttingBoard", "hold"),
+  prep("beef-patty", "Beef Patty", [inp("ground-beef")], 3000, "cuttingBoard", "hold"),
+  cook("grilled-patty", "Grilled Patty", [inp("beef-patty")], 5000, "stove", "flip"),
+  prep("cut-fries", "Cut Fries", [inp("potato")], 3000, "cuttingBoard", "hold"),
+  cook("french-fries", "French Fries", [inp("cut-fries")], 4000, "stove", "flip"),
+  cook("crispy-bacon", "Crispy Bacon", [inp("bacon")], 4000, "stove", "flip"),
+  cook("grilled-chicken", "Grilled Chicken", [inp("chicken-breast")], 5000, "stove", "flip"),
 
   // ── BBQ Prepped ───────────────────────────────────────────────────────
-  prep("coleslaw", "Coleslaw", [inp("cabbage")], 4000),
-  prep("seasoned-pork", "Seasoned Pork", [inp("pork-shoulder")], 3000),
-  cook("smoked-pork", "Smoked Pork", [inp("seasoned-pork")], 8000),
-  prep("pulled-pork", "Pulled Pork", [inp("smoked-pork")], 3000),
-  prep("seasoned-ribs", "Seasoned Ribs", [inp("ribs")], 4000),
-  cook("smoked-ribs", "Smoked Ribs", [inp("seasoned-ribs")], 8000),
-  prep("seasoned-brisket", "Seasoned Brisket", [inp("brisket")], 4000),
-  cook("smoked-brisket", "Smoked Brisket", [inp("seasoned-brisket")], 10000),
-  prep("sliced-brisket", "Sliced Brisket", [inp("smoked-brisket")], 3000),
-  prep("seasoned-chicken", "Seasoned Chicken", [inp("chicken")], 3000),
-  cook("smoked-chicken", "Smoked Chicken", [inp("seasoned-chicken")], 6000),
-  cook("grilled-corn", "Grilled Corn", [inp("corn")], 4000),
-  cook("smoked-patty", "Smoked Patty", [inp("beef-patty")], 6000),
-  cook("onion-rings", "Onion Rings", [inp("sliced-onion")], 5000),
+  prep("coleslaw", "Coleslaw", [inp("cabbage")], 4000, "cuttingBoard", "hold"),
+  prep("seasoned-pork", "Seasoned Pork", [inp("pork-shoulder")], 3000, "cuttingBoard", "hold"),
+  cook("smoked-pork", "Smoked Pork", [inp("seasoned-pork")], 8000, "oven", "auto"),
+  prep("pulled-pork", "Pulled Pork", [inp("smoked-pork")], 3000, "cuttingBoard", "hold"),
+  prep("seasoned-ribs", "Seasoned Ribs", [inp("ribs")], 4000, "cuttingBoard", "hold"),
+  cook("smoked-ribs", "Smoked Ribs", [inp("seasoned-ribs")], 8000, "oven", "auto"),
+  prep("seasoned-brisket", "Seasoned Brisket", [inp("brisket")], 4000, "cuttingBoard", "hold"),
+  cook("smoked-brisket", "Smoked Brisket", [inp("seasoned-brisket")], 10000, "oven", "auto"),
+  prep("sliced-brisket", "Sliced Brisket", [inp("smoked-brisket")], 3000, "cuttingBoard", "hold"),
+  prep("seasoned-chicken", "Seasoned Chicken", [inp("chicken")], 3000, "cuttingBoard", "hold"),
+  cook("smoked-chicken", "Smoked Chicken", [inp("seasoned-chicken")], 6000, "oven", "auto"),
+  cook("grilled-corn", "Grilled Corn", [inp("corn")], 4000, "stove", "flip"),
+  cook("smoked-patty", "Smoked Patty", [inp("beef-patty")], 6000, "stove", "flip"),
+  cook("onion-rings", "Onion Rings", [inp("sliced-onion")], 5000, "stove", "flip"),
 
   // ── Sushi Prepped ─────────────────────────────────────────────────────
   cook(
     "sushi-rice",
     "Sushi Rice",
     [inp("rice"), inp("rice-vinegar")],
-    5000
+    5000,
+    "stove",
+    "auto",
   ),
-  prep("rice-ball", "Rice Ball", [inp("sushi-rice")], 2000),
-  prep("sliced-salmon", "Sliced Salmon", [inp("salmon")], 3000),
-  prep("sliced-tuna", "Sliced Tuna", [inp("tuna")], 3000),
-  prep("sliced-cucumber", "Sliced Cucumber", [inp("cucumber")], 2000),
-  prep("sliced-avocado", "Sliced Avocado", [inp("avocado")], 2000),
-  prep("cubed-tofu", "Cubed Tofu", [inp("tofu")], 2000),
-  cook("tempura-shrimp", "Tempura Shrimp", [inp("shrimp")], 4000),
+  prep("rice-ball", "Rice Ball", [inp("sushi-rice")], 2000, "cuttingBoard", "hold"),
+  prep("sliced-salmon", "Sliced Salmon", [inp("salmon")], 3000, "cuttingBoard", "hold"),
+  prep("sliced-tuna", "Sliced Tuna", [inp("tuna")], 3000, "cuttingBoard", "hold"),
+  prep("sliced-cucumber", "Sliced Cucumber", [inp("cucumber")], 2000, "cuttingBoard", "hold"),
+  prep("sliced-avocado", "Sliced Avocado", [inp("avocado")], 2000, "cuttingBoard", "hold"),
+  prep("cubed-tofu", "Cubed Tofu", [inp("tofu")], 2000, "cuttingBoard", "hold"),
+  cook("tempura-shrimp", "Tempura Shrimp", [inp("shrimp")], 4000, "stove", "flip"),
 
   // ── Burger Dishes ─────────────────────────────────────────────────────
   assemble("classic-burger", "Classic Burger", [
@@ -184,7 +195,7 @@ const ALL_RECIPES: ReadonlyArray<RecipeStep> = [
     inp("tempura-shrimp"),
     inp("sliced-avocado"),
   ]),
-  cook("miso-soup", "Miso Soup", [inp("miso-paste"), inp("cubed-tofu")], 5000),
+  cook("miso-soup", "Miso Soup", [inp("miso-paste"), inp("cubed-tofu")], 5000, "stove", "auto"),
 ];
 
 const RECIPE_MAP: ReadonlyMap<ItemId, RecipeStep> = new Map(
