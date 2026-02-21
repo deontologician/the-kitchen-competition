@@ -3,6 +3,8 @@ import { slotId } from "./branded";
 import { deserializeSave } from "./save-game";
 import type { RestaurantType } from "./restaurant-type";
 import { restaurantDisplayName } from "./restaurant-type";
+import type { Phase } from "./day-cycle";
+import type { Inventory } from "./inventory";
 
 export type { RestaurantType } from "./restaurant-type";
 export { restaurantDisplayName } from "./restaurant-type";
@@ -55,6 +57,8 @@ export interface SaveSlotPatch {
   readonly lastSaved?: number;
   readonly unlockedDishes?: number;
   readonly disabledDishes?: ReadonlyArray<ItemId>;
+  readonly phase?: Phase;
+  readonly inventory?: Inventory;
 }
 
 export const patchSlot = (slot: SaveSlot, patch: SaveSlotPatch): SaveSlot =>
