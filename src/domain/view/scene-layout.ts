@@ -146,6 +146,37 @@ export const notificationPos: Point = anchorPoint(canvas, {
   offsetY: -30,
 });
 
+// ── Kitchen zone layout (prep + service modes) ──
+
+/**
+ * Left strip: pending orders list (service mode only).
+ * x≈10, w≈150
+ */
+export const serviceOrdersRegion: Rect = { x: 10, y: 90, width: 150, height: 470 };
+
+/**
+ * Center panel: zone panels (prep + service modes).
+ * x≈170, w≈400
+ */
+export const serviceZoneRegion: Rect = { x: 170, y: 90, width: 400, height: 470 };
+
+/**
+ * Right strip: tappable ingredients / pantry (prep + service modes).
+ * x≈580, w≈210
+ */
+export const servicePantryRegion: Rect = { x: 580, y: 90, width: 210, height: 470 };
+
+/**
+ * Bottom of zone region: ready pile display.
+ */
+export const serviceReadyRegion: Rect = { x: 170, y: 470, width: 400, height: 90 };
+
+/** Height of a single zone panel. */
+export const ZONE_PANEL_H = 90;
+
+/** Vertical gap between zone panels. */
+export const ZONE_PANEL_GAP = 8;
+
 // ── Menu stacks (Title, Pause, LoadGame scenes) ──
 
 export const menuStack = (
