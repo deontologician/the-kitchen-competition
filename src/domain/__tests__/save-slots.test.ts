@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
 import {
   createSaveSlot,
+  patchSlot,
   createSaveStore,
   addSlot,
   updateSlot,
@@ -32,6 +33,33 @@ const makeSlot = (overrides: Partial<SaveSlot> = {}): SaveSlot =>
     overrides.unlockedDishes
   );
 
+const restaurantTypeArb = fc.constantFrom(
+  "sushi" as const,
+  "bbq" as const,
+  "burger" as const
+);
+
+const slotWithDisabledArb = fc
+  .record({
+    id: fc.uuid(),
+    restaurantType: restaurantTypeArb,
+    day: fc.integer({ min: 1, max: 999 }),
+    coins: fc.nat(99999),
+    scene: fc.constantFrom("GroceryScene", "KitchenScene", "RestaurantScene"),
+    lastSaved: fc.nat(Number.MAX_SAFE_INTEGER),
+    unlockedDishes: fc.integer({ min: 1, max: 5 }),
+    disabledDishes: fc.option(
+      fc.array(fc.string().map((s) => itemId(s)), { minLength: 1, maxLength: 3 }),
+      { nil: undefined }
+    ),
+  })
+  .map((r) =>
+    createSaveSlot(
+      slotId(r.id), r.restaurantType, r.day, r.coins,
+      r.scene, r.lastSaved, r.unlockedDishes, r.disabledDishes
+    )
+  );
+
 // --- createSaveSlot ---
 
 describe("createSaveSlot", () => {
@@ -46,6 +74,73 @@ describe("createSaveSlot", () => {
       lastSaved: 9999,
       unlockedDishes: 3,
     });
+  });
+});
+
+// --- patchSlot ---
+
+describe("patchSlot", () => {
+  it("updates only specified fields, leaves everything else intact", () => {
+    const slot = createSaveSlot(
+      slotId("s1"), "sushi", 3, 42, "KitchenScene", 9999, 3,
+      [itemId("salmon-sashimi")]
+    );
+    const patched = patchSlot(slot, { coins: 100, lastSaved: 5000 });
+    expect(patched.id).toBe("s1");
+    expect(patched.restaurantType).toBe("sushi");
+    expect(patched.day).toBe(3);
+    expect(patched.coins).toBe(100);
+    expect(patched.scene).toBe("KitchenScene");
+    expect(patched.lastSaved).toBe(5000);
+    expect(patched.unlockedDishes).toBe(3);
+    expect(patched.disabledDishes).toEqual([itemId("salmon-sashimi")]);
+  });
+
+  it("preserves disabledDishes when not in patch", () => {
+    const slot = createSaveSlot(
+      slotId("s1"), "burger", 1, 10, "GroceryScene", 1000, 5,
+      [itemId("classic-burger")]
+    );
+    const patched = patchSlot(slot, { coins: 20 });
+    expect(patched.disabledDishes).toEqual([itemId("classic-burger")]);
+  });
+
+  it("preserves undefined disabledDishes when not in patch", () => {
+    const slot = createSaveSlot(
+      slotId("s1"), "burger", 1, 10, "GroceryScene", 1000
+    );
+    expect(slot.disabledDishes).toBeUndefined();
+    const patched = patchSlot(slot, { coins: 20 });
+    expect(patched.disabledDishes).toBeUndefined();
+  });
+
+  it("allows explicit override of disabledDishes", () => {
+    const slot = createSaveSlot(
+      slotId("s1"), "burger", 1, 10, "GroceryScene", 1000, 5,
+      [itemId("classic-burger")]
+    );
+    const newDisabled = [itemId("cheeseburger"), itemId("chicken-sandwich")];
+    const patched = patchSlot(slot, { disabledDishes: newDisabled });
+    expect(patched.disabledDishes).toEqual(newDisabled);
+  });
+
+  it("allows clearing disabledDishes with empty array", () => {
+    const slot = createSaveSlot(
+      slotId("s1"), "burger", 1, 10, "GroceryScene", 1000, 5,
+      [itemId("classic-burger")]
+    );
+    const patched = patchSlot(slot, { disabledDishes: [] });
+    // createSaveSlot normalizes empty array to omitted
+    expect(patched.disabledDishes).toBeUndefined();
+  });
+
+  it("empty patch is identity", () => {
+    fc.assert(
+      fc.property(slotWithDisabledArb, (slot) => {
+        const patched = patchSlot(slot, {});
+        expect(patched).toEqual(slot);
+      })
+    );
   });
 });
 
@@ -551,12 +646,6 @@ describe("toggleDish", () => {
 // --- Property-based tests ---
 
 describe("property-based tests", () => {
-  const restaurantTypeArb = fc.constantFrom(
-    "sushi" as const,
-    "bbq" as const,
-    "burger" as const
-  );
-
   const slotArb = fc
     .record({
       id: fc.uuid(),

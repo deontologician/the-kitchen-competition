@@ -4,7 +4,7 @@ import {
   type SaveStore,
   findSlot,
   updateSlot,
-  createSaveSlot,
+  patchSlot,
 } from "../domain/save-slots";
 
 export const recordSceneEntry = (
@@ -18,16 +18,7 @@ export const recordSceneEntry = (
   const slot = findSlot(store, activeSlotId);
   if (slot === undefined) return;
 
-  const updated = createSaveSlot(
-    slot.id,
-    slot.restaurantType,
-    slot.day,
-    slot.coins,
-    sceneKey,
-    Date.now(),
-    slot.unlockedDishes,
-    slot.disabledDishes
-  );
+  const updated = patchSlot(slot, { scene: sceneKey, lastSaved: Date.now() });
   registry.set("saveStore", updateSlot(store, updated));
 };
 
@@ -42,15 +33,6 @@ export const recordDayAdvance = (
   const slot = findSlot(store, activeSlotId);
   if (slot === undefined) return;
 
-  const updated = createSaveSlot(
-    slot.id,
-    slot.restaurantType,
-    day,
-    slot.coins,
-    slot.scene,
-    Date.now(),
-    slot.unlockedDishes,
-    slot.disabledDishes
-  );
+  const updated = patchSlot(slot, { day, lastSaved: Date.now() });
   registry.set("saveStore", updateSlot(store, updated));
 };

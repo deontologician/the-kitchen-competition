@@ -96,19 +96,6 @@ Basic serialization roundtrip tests exist for `SaveStore` and `SaveSlot`. What's
 
 The balance sim (`balance-sim.ts`) runs a pure economy simulation but doesn't go through the view model layer. It should use the same VMs that scenes use (`groceryVM`, `kitchenVM`, `restaurantVM`, `dayEndVM`) so the simulation reflects what the player actually sees and can do — e.g. affordability checks, craftability, dish unlock decisions. If the VMs ever diverge from raw domain logic, the sim would silently test the wrong thing.
 
-### Disabled menu items reset and still get ordered
-**Priority: High | Effort: Small**
-
-Two issues:
-1. The grocery scene resets the menu back to fully enabled partway through, wiping out the player's disabled dishes.
-2. Even when set, `pickRandomDish` in `RestaurantScene.spawnCustomer()` likely isn't filtering by disabled dishes.
-3. The disabled dishes list may not be persisting through save/load — ensure `disabledDishes` on `SaveSlot` is correctly saved and restored.
-
-### Kitchen ingredient list can't scroll
-**Priority: High | Effort: Small**
-
-The recipe/ingredient list in the kitchen scene overflows off-screen when there are many items. No scrolling is implemented, so items pushed below the visible area are completely inaccessible. Need to add scrolling (scroll wheel, drag, or arrow buttons) to the ingredient/recipe panel.
-
 ### Regenerate beef patty icon
 **Priority: Low | Effort: Small**
 
