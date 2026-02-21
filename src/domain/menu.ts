@@ -140,18 +140,66 @@ export const shouldUnlockNextDish = (
     ? currentUnlocked + 1
     : currentUnlocked;
 
+export const enabledDishIds = (
+  type: RestaurantType,
+  unlockedCount: number,
+  disabledDishes: ReadonlyArray<ItemId>
+): ReadonlyArray<ItemId> => {
+  const all = unlockedDishIdsFor(type, unlockedCount);
+  const enabled = all.filter((id) => !disabledDishes.includes(id));
+  return enabled.length > 0 ? enabled : [all[0]];
+};
+
+export const enabledGroceryItemsFor = (
+  type: RestaurantType,
+  unlockedCount: number,
+  disabledDishes: ReadonlyArray<ItemId>
+): ReadonlyArray<ItemId> => {
+  const allRaws = new Set<ItemId>();
+  enabledDishIds(type, unlockedCount, disabledDishes).forEach((dishId) => {
+    const chain = resolveRecipeChain(dishId);
+    if (chain === undefined) return;
+    totalRawIngredients(chain).forEach((ri) => allRaws.add(ri.itemId));
+  });
+  return [...allRaws];
+};
+
+export const enabledRecipesFor = (
+  type: RestaurantType,
+  unlockedCount: number,
+  disabledDishes: ReadonlyArray<ItemId>
+): ReadonlyArray<RecipeStep> => {
+  const seen = new Set<ItemId>();
+  const result: RecipeStep[] = [];
+  enabledDishIds(type, unlockedCount, disabledDishes).forEach((dishId) => {
+    const chain = resolveRecipeChain(dishId);
+    if (chain === undefined) return;
+    flattenRecipeChain(chain).forEach((step) => {
+      if (!seen.has(step.id)) {
+        seen.add(step.id);
+        result.push(step);
+      }
+    });
+  });
+  return result;
+};
+
 export const pickRandomDish = (
   type: RestaurantType,
   randomValue: number,
-  unlockedCount?: number
+  unlockedCount?: number,
+  disabledDishes?: ReadonlyArray<ItemId>
 ): MenuItem => {
-  const items =
+  const baseItems =
     unlockedCount !== undefined
       ? unlockedMenuFor(type, unlockedCount).items
       : MENUS[type].items;
-  const index = Math.min(
-    Math.floor(randomValue * items.length),
-    items.length - 1
-  );
-  return items[index];
+  const disabled = disabledDishes ?? [];
+  const items =
+    disabled.length > 0
+      ? baseItems.filter((mi) => !disabled.includes(mi.dishId))
+      : baseItems;
+  const pool = items.length > 0 ? items : [baseItems[0]];
+  const index = Math.min(Math.floor(randomValue * pool.length), pool.length - 1);
+  return pool[index];
 };

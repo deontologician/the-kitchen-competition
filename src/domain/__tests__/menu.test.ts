@@ -12,6 +12,9 @@ import {
   unlockedGroceryItemsFor,
   unlockedRecipesFor,
   shouldUnlockNextDish,
+  enabledDishIds,
+  enabledGroceryItemsFor,
+  enabledRecipesFor,
 } from "../menu";
 import type { RestaurantType } from "../restaurant-type";
 import { findItem } from "../items";
@@ -599,6 +602,142 @@ describe("shouldUnlockNextDish", () => {
         (lost, coins, current) => {
           const result = shouldUnlockNextDish(lost, coins, current);
           expect(result - current).toBeLessThanOrEqual(1);
+        }
+      )
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enabledDishIds
+// ---------------------------------------------------------------------------
+describe("enabledDishIds", () => {
+  it("excludes disabled items from the unlocked set", () => {
+    const disabled = [itemId("cheeseburger")];
+    const ids = enabledDishIds("burger", 3, disabled);
+    expect(ids).not.toContain(itemId("cheeseburger"));
+    expect(ids).toContain(itemId("classic-burger"));
+    expect(ids).toContain(itemId("chicken-sandwich"));
+  });
+
+  it("returns all unlocked when none disabled", () => {
+    const ids = enabledDishIds("burger", 3, []);
+    expect(ids.length).toBe(3);
+  });
+
+  it("never returns empty (fallback to first unlocked dish)", () => {
+    // Disable all 3 unlocked dishes — should fall back to first
+    const disabled = [
+      itemId("classic-burger"),
+      itemId("cheeseburger"),
+      itemId("chicken-sandwich"),
+    ];
+    const ids = enabledDishIds("burger", 3, disabled);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids[0]).toBe(itemId("classic-burger"));
+  });
+
+  it("ignores disabled ids that are not in the unlocked set", () => {
+    const disabled = [itemId("bacon-cheeseburger")]; // 5th dish, not unlocked at count=3
+    const ids = enabledDishIds("burger", 3, disabled);
+    expect(ids.length).toBe(3); // unaffected
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enabledGroceryItemsFor
+// ---------------------------------------------------------------------------
+describe("enabledGroceryItemsFor", () => {
+  it("omits ingredients exclusive to disabled dishes", () => {
+    // chicken-breast is only used in chicken-sandwich
+    const disabled = [itemId("chicken-sandwich")];
+    const items = enabledGroceryItemsFor("burger", 5, disabled);
+    expect(items).not.toContain(itemId("chicken-breast"));
+  });
+
+  it("includes ingredients for enabled dishes", () => {
+    const disabled = [itemId("cheeseburger")];
+    const items = enabledGroceryItemsFor("burger", 3, disabled);
+    expect(items).toContain(itemId("bun"));
+    expect(items).toContain(itemId("ground-beef"));
+  });
+
+  it("returns only raw items", () => {
+    TYPES.forEach((type) => {
+      enabledGroceryItemsFor(type, 3, []).forEach((id) => {
+        const item = findItem(id);
+        expect(item).toBeDefined();
+        expect(item!.category).toBe("raw");
+      });
+    });
+  });
+
+  it("equals unlockedGroceryItemsFor when nothing disabled", () => {
+    TYPES.forEach((type) => {
+      const expected = unlockedGroceryItemsFor(type, 3);
+      const actual = enabledGroceryItemsFor(type, 3, []);
+      expect(new Set(actual)).toEqual(new Set(expected));
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enabledRecipesFor
+// ---------------------------------------------------------------------------
+describe("enabledRecipesFor", () => {
+  it("returns only recipes reachable from enabled dishes", () => {
+    // Disable cheeseburger — its exclusive recipe should not appear
+    const disabled = [itemId("cheeseburger")];
+    const enabled = enabledRecipesFor("burger", 2, disabled);
+    const allIds = enabled.map((r) => r.id);
+    // classic-burger recipes are still present
+    expect(allIds).toContain(itemId("beef-patty"));
+    expect(allIds).toContain(itemId("classic-burger"));
+    // cheeseburger itself should not be in the enabled list
+    expect(allIds).not.toContain(itemId("cheeseburger"));
+  });
+
+  it("equals unlockedRecipesFor when nothing disabled", () => {
+    TYPES.forEach((type) => {
+      const expected = unlockedRecipesFor(type, 3);
+      const actual = enabledRecipesFor(type, 3, []);
+      expect(new Set(actual.map((r) => r.id))).toEqual(
+        new Set(expected.map((r) => r.id))
+      );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pickRandomDish with disabledDishes
+// ---------------------------------------------------------------------------
+describe("pickRandomDish with disabledDishes", () => {
+  it("with all-but-one disabled always returns the enabled dish", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...TYPES),
+        fc.double({ min: 0, max: 0.9999, noNaN: true }),
+        (type, randomValue) => {
+          const allIds = unlockedDishIdsFor(type, 5);
+          const enabled = allIds[0];
+          const disabled = allIds.slice(1);
+          const item = pickRandomDish(type, randomValue, 5, disabled);
+          expect(item.dishId).toBe(enabled);
+        }
+      )
+    );
+  });
+
+  it("with empty disabled behaves same as no disabledDishes arg", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...TYPES),
+        fc.double({ min: 0, max: 0.9999, noNaN: true }),
+        fc.integer({ min: 1, max: 5 }),
+        (type, randomValue, count) => {
+          const withEmpty = pickRandomDish(type, randomValue, count, []);
+          const withUndefined = pickRandomDish(type, randomValue, count);
+          expect(withEmpty.dishId).toBe(withUndefined.dishId);
         }
       )
     );
