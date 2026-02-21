@@ -25,7 +25,8 @@ export const recordSceneEntry = (
     slot.coins,
     sceneKey,
     Date.now(),
-    slot.unlockedDishes
+    slot.unlockedDishes,
+    slot.disabledDishes
   );
   registry.set("saveStore", updateSlot(store, updated));
 };
@@ -48,7 +49,8 @@ export const recordDayAdvance = (
     slot.coins,
     slot.scene,
     Date.now(),
-    slot.unlockedDishes
+    slot.unlockedDishes,
+    slot.disabledDishes
   );
   registry.set("saveStore", updateSlot(store, updated));
 };

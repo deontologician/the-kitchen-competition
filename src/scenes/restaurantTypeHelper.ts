@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import type { SlotId } from "../domain/branded";
+import type { SlotId, ItemId } from "../domain/branded";
 import {
   type SaveStore,
   type RestaurantType,
@@ -25,6 +25,16 @@ export const getActiveUnlockedCount = (
   if (store === undefined || activeSlotId === undefined) return STARTER_DISH_COUNT;
   const slot = findSlot(store, activeSlotId);
   return slot?.unlockedDishes ?? STARTER_DISH_COUNT;
+};
+
+export const getActiveDisabledDishes = (
+  registry: Phaser.Data.DataManager
+): ReadonlyArray<ItemId> => {
+  const store: SaveStore | undefined = registry.get("saveStore");
+  const activeSlotId: SlotId | undefined = registry.get("activeSlotId");
+  if (store === undefined || activeSlotId === undefined) return [];
+  const slot = findSlot(store, activeSlotId);
+  return slot?.disabledDishes ?? [];
 };
 
 export const backgroundKey = (

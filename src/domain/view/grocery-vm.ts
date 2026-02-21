@@ -3,7 +3,7 @@ import type { RestaurantType } from "../restaurant-type";
 import { findItem } from "../items";
 import { canAfford, type Wallet } from "../wallet";
 import { countItem, type Inventory } from "../inventory";
-import { unlockedGroceryItemsFor } from "../menu";
+import { enabledGroceryItemsFor } from "../menu";
 import { truncateName } from "./format";
 
 export interface GroceryItemVM {
@@ -26,9 +26,10 @@ export const groceryVM = (
   wallet: Wallet,
   inventory: Inventory,
   restaurantType: RestaurantType,
-  unlockedCount: number
+  unlockedCount: number,
+  disabledDishes: ReadonlyArray<ItemId> = []
 ): GroceryVM => {
-  const groceryIds = unlockedGroceryItemsFor(restaurantType, unlockedCount);
+  const groceryIds = enabledGroceryItemsFor(restaurantType, unlockedCount, disabledDishes);
 
   const items = groceryIds
     .map((id) => {

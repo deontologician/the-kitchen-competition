@@ -7,6 +7,7 @@ import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
   getActiveUnlockedCount,
+  getActiveDisabledDishes,
   backgroundKey,
   backgroundAssetPath,
 } from "./restaurantTypeHelper";
@@ -23,7 +24,7 @@ import {
   defaultDurations,
 } from "../domain/day-cycle";
 import { unseatCustomer } from "../domain/tables";
-import { unlockedRecipesFor } from "../domain/menu";
+import { enabledRecipesFor } from "../domain/menu";
 import { findItem } from "../domain/items";
 import type { RecipeStep } from "../domain/recipes";
 import {
@@ -76,9 +77,10 @@ export class KitchenScene extends Phaser.Scene {
       this.load.image(key, backgroundAssetPath(type, "kitchen"));
     }
 
-    // Preload item sprites for unlocked recipes
+    // Preload item sprites for enabled recipes
     const unlocked = getActiveUnlockedCount(this.registry);
-    const recipes = unlockedRecipesFor(type, unlocked);
+    const disabled = getActiveDisabledDishes(this.registry);
+    const recipes = enabledRecipesFor(type, unlocked, disabled);
     const itemIds = new Set<string>();
     recipes.forEach((r) => {
       itemIds.add(r.output);
@@ -216,6 +218,7 @@ export class KitchenScene extends Phaser.Scene {
 
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
+    const disabledDishes = getActiveDisabledDishes(this.registry);
     const inv: Inventory =
       this.registry.get("inventory") ?? createInventory();
 
@@ -224,7 +227,7 @@ export class KitchenScene extends Phaser.Scene {
         ? { step: this.activeRecipe, startedAt: this.recipeStartTime }
         : undefined;
 
-    const vm = kitchenVM(inv, type, unlockedCount, activeRecipeState, Date.now());
+    const vm = kitchenVM(inv, type, unlockedCount, activeRecipeState, Date.now(), disabledDishes);
     const isBusy = this.activeRecipe !== undefined;
 
     // Sort: craftable first, limit to 7
@@ -357,7 +360,8 @@ export class KitchenScene extends Phaser.Scene {
   private startRecipeByStepId(stepId: string): void {
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
-    const recipes = unlockedRecipesFor(type, unlockedCount);
+    const disabled = getActiveDisabledDishes(this.registry);
+    const recipes = enabledRecipesFor(type, unlockedCount, disabled);
     const recipe = recipes.find((r) => r.id === stepId);
     if (recipe !== undefined) {
       this.startRecipe(recipe);

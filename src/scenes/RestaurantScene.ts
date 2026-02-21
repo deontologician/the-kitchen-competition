@@ -9,6 +9,7 @@ import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
   getActiveUnlockedCount,
+  getActiveDisabledDishes,
   backgroundKey,
   backgroundAssetPath,
   tableKey,
@@ -323,7 +324,8 @@ export class RestaurantScene extends Phaser.Scene {
 
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
-    const menuItem = pickRandomDish(type, Math.random(), unlockedCount);
+    const disabledDishes = getActiveDisabledDishes(this.registry);
+    const menuItem = pickRandomDish(type, Math.random(), unlockedCount, disabledDishes);
     const tableId = empty[Math.floor(Math.random() * empty.length)];
     const patienceMs =
       difficulty.customerPatienceMinMs +
@@ -608,7 +610,8 @@ export class RestaurantScene extends Phaser.Scene {
             slot.coins,
             slot.scene,
             Date.now(),
-            vm.dishUnlock.newUnlockedCount
+            vm.dishUnlock.newUnlockedCount,
+            slot.disabledDishes
           );
           this.registry.set("saveStore", updateSlot(store, updated));
         }

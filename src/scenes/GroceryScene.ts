@@ -13,6 +13,7 @@ import { renderPanel } from "./panel";
 import {
   getActiveRestaurantType,
   getActiveUnlockedCount,
+  getActiveDisabledDishes,
   backgroundKey,
   backgroundAssetPath,
 } from "./restaurantTypeHelper";
@@ -23,7 +24,7 @@ import {
   advanceToKitchenPrep,
   defaultDurations,
 } from "../domain/day-cycle";
-import { unlockedGroceryItemsFor } from "../domain/menu";
+import { enabledGroceryItemsFor } from "../domain/menu";
 import { findItem, type ItemDef } from "../domain/items";
 import {
   createInventory,
@@ -62,9 +63,10 @@ export class GroceryScene extends Phaser.Scene {
       this.load.image(key, backgroundAssetPath(type, "grocery"));
     }
 
-    // Preload item sprites for this restaurant type's unlocked dishes
+    // Preload item sprites for this restaurant type's enabled dishes
     const unlocked = getActiveUnlockedCount(this.registry);
-    const itemIds = unlockedGroceryItemsFor(type, unlocked);
+    const disabled = getActiveDisabledDishes(this.registry);
+    const itemIds = enabledGroceryItemsFor(type, unlocked, disabled);
     itemIds.forEach((id) => {
       const spriteKey = `item-${id}`;
       if (!this.textures.exists(spriteKey)) {
@@ -92,9 +94,10 @@ export class GroceryScene extends Phaser.Scene {
 
     renderPixelText(this, ["GROCERY STORE"], { centerY: sceneTitleY });
 
-    // Build grocery item list (only ingredients for unlocked dishes)
+    // Build grocery item list (only ingredients for enabled dishes)
     const unlockedCount = getActiveUnlockedCount(this.registry);
-    const groceryIds = unlockedGroceryItemsFor(type, unlockedCount);
+    const disabledDishes = getActiveDisabledDishes(this.registry);
+    const groceryIds = enabledGroceryItemsFor(type, unlockedCount, disabledDishes);
     this.groceryItems = groceryIds
       .map((id) => findItem(id))
       .filter((item): item is ItemDef => item !== undefined);
@@ -161,7 +164,8 @@ export class GroceryScene extends Phaser.Scene {
       this.registry.get("inventory") ?? createInventory();
     const type = getActiveRestaurantType(this.registry);
     const unlockedCount = getActiveUnlockedCount(this.registry);
-    const vm = groceryVM(wallet, inv, type, unlockedCount);
+    const disabledDishes = getActiveDisabledDishes(this.registry);
+    const vm = groceryVM(wallet, inv, type, unlockedCount, disabledDishes);
 
     const cells = groceryGrid(vm.items.length);
 

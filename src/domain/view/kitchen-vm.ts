@@ -2,7 +2,7 @@ import type { ItemId } from "../branded";
 import type { RestaurantType } from "../restaurant-type";
 import { findItem } from "../items";
 import { countItem, hasIngredientsFor, type Inventory } from "../inventory";
-import { unlockedRecipesFor } from "../menu";
+import { enabledRecipesFor } from "../menu";
 import type { RecipeMethod, RecipeStep } from "../recipes";
 
 export interface ActiveRecipe {
@@ -43,9 +43,10 @@ export const kitchenVM = (
   restaurantType: RestaurantType,
   unlockedCount: number,
   activeRecipe: ActiveRecipe | undefined,
-  now: number
+  now: number,
+  disabledDishes: ReadonlyArray<ItemId> = []
 ): KitchenVM => {
-  const allRecipes = unlockedRecipesFor(restaurantType, unlockedCount);
+  const allRecipes = enabledRecipesFor(restaurantType, unlockedCount, disabledDishes);
 
   const recipes: ReadonlyArray<RecipeVM> = allRecipes.map((recipe) => {
     const outputItem = findItem(recipe.output);
