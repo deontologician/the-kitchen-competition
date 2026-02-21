@@ -82,14 +82,15 @@ Replace the current red text color-coding for item freshness with a small shrink
 ## Bugs / Tech Debt
 
 ### Save/load roundtrip tests
-**Priority: High | Effort: Medium**
+**Priority: Medium | Effort: Medium**
 
-Basic serialization roundtrip tests exist for `SaveStore` and `SaveSlot`. What's missing is **full game state roundtrip testing** — generating realistic in-progress game states and verifying everything survives:
+Full game state persistence is now implemented: `SaveSlot` stores `phase` (full Phase union) and `inventory`, and load handlers reconstruct the exact `DayCycle` and route to the correct scene. Serialization roundtrip tests exist for all phase types (grocery, kitchen_prep, service with customers, day_end) and inventory.
 
-- Prep/cooking progress on in-flight recipes preserved (partially chopped lettuce stays partially chopped).
-- Item expiration timers resume correctly relative to elapsed time, not reset.
-- Day cycle phase, sub-phase, earnings, customers served/lost all restored.
-- View models produce the same output before save and after load.
+**Remaining gaps:**
+- KitchenScene `activeRecipe` (cooking progress) is scene-local and not persisted. Saving mid-cook loses recipe progress (consumed ingredients are preserved).
+- `customersSpawned` counter in RestaurantScene resets on reload, potentially allowing more spawns than intended.
+- Item freshness uses absolute `createdAt` timestamps — loading hours later may expire items instantly.
+- View model equivalence tests (verify VMs produce same output before save and after load) not yet implemented.
 
 ### Update balance sim to use view models
 **Priority: Medium | Effort: Medium**

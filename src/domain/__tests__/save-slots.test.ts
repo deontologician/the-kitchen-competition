@@ -738,8 +738,11 @@ describe("phase and inventory persistence", () => {
       expect(restoredPhase).toBeDefined();
       expect(restoredPhase?.tag).toBe("service");
       if (restoredPhase?.tag === "service") {
-        expect(restoredPhase.customerQueue).toHaveLength(1);
-        expect(restoredPhase.customerQueue[0].id).toBe("c1");
+        // enqueueCustomer seats at a table, so check tables for the customer
+        const seatedTable = restoredPhase.tables.find(
+          (t) => t.tag === "customer_waiting" && t.customer.id === "c1"
+        );
+        expect(seatedTable).toBeDefined();
       }
     });
 
