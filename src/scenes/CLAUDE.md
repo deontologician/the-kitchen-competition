@@ -8,7 +8,7 @@
 - **`LoadGameScene`** — Lists save slots sorted by recency via `formatSlotSummary`. Click loads slot → GroceryScene. Back → TitleScene.
 - **`GroceryScene`** — 30s shopping phase. Uses `groceryVM` for item grid + `timerBarVM` for countdown. Panel overlay + pixel-art title + coin HUD. Auto-transitions to KitchenScene on timer expiry. Calls `recordSceneEntry` on create. Esc → PauseScene.
 - **`KitchenScene`** — Dual-mode. **Prep mode** (`kitchen_prep` phase): 30s countdown, auto-transitions to RestaurantScene. **Cooking mode** (`service` phase, `cooking` sub-phase): shows order details + recipe list. Uses `kitchenVM` for recipe craftability. Service timer keeps ticking. Esc → PauseScene.
-- **`RestaurantScene`** — Service phase hub. 2x3 table grid at `TABLE_POSITIONS`. Uses `restaurantVM` for table status/action prompts + `dayEndVM` for summary. `difficultyForDay` drives spawns/patience. Auto-calls `beginTakingOrder` when waiting + queue non-empty. "Serve Now" (if dish in inventory) or "Cook Order" → KitchenScene. Day-end overlay with "Next Day" button. Esc → PauseScene.
+- **`RestaurantScene`** — Service phase hub. 2x3 table grid via `tablePositions()`. Uses `restaurantVM` for table status/action prompts + `dayEndVM` for summary. `difficultyForDay` drives spawns/patience. Auto-calls `beginTakingOrder` when waiting + queue non-empty. "Serve Now" (if dish in inventory) or "Cook Order" → KitchenScene. Day-end overlay with "Next Day" button. Esc → PauseScene.
 - **`PauseScene`** — Esc-key overlay via `scene.launch()` + `scene.pause()`. Menus: Resume, Save, Load Game, Debug (Skip Phase, Add 50 Coins), Quit to Title. Pausing freezes `update()` and all Phaser timers.
 
 ## Scene Helpers
@@ -23,6 +23,19 @@
 - **`inventorySidebar.ts`** — `renderInventorySidebar(scene, inventory, oldObjects)` renders right-aligned list with freshness color-coding.
 - **`tableRenderer.ts`** — `renderTableOverlays(scene, phase, layout, oldBubbles)` renders table tints, order bubbles (32px dish sprites), patience bars.
 - **`serviceAnimations.ts`** — `animateServe` (+$ float + pop), `animateCustomerLeft` (red flash), `animateArrival` (bounce).
+
+## Layout Pattern
+
+All UI positions are derived from `src/domain/view/scene-layout.ts`, which exports named constants and functions built on the `layout.ts` primitives. Scenes import positions instead of using hardcoded pixel values:
+
+```ts
+import { skipButtonPos, groceryGrid, timerBar } from "../domain/view/scene-layout";
+addMenuButton(this, skipButtonPos.x, skipButtonPos.y, "Done Shopping", ...);
+const cells = groceryGrid(vm.items.length);
+renderTimerBar(this, timerBar.x, timerBar.y, timerBar.width, timerBar.height, ...);
+```
+
+This ensures buttons, grids, and text are positioned relative to parent rects, making overlap bugs structurally impossible.
 
 ## State Management
 

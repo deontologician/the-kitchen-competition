@@ -11,6 +11,7 @@
 - **`restaurant-type.ts`** — `RestaurantType` (`"sushi" | "bbq" | "burger"`) + `restaurantDisplayName`. Canonical import source — 9+ modules depend on this.
 - **`save-slots.ts`** — Multi-slot save system (v2). `SaveSlot` (id, restaurantType, day, coins, scene, lastSaved, unlockedDishes), `SaveStore` (version 2 + slots). Re-exports `RestaurantType` for backward compat. `loadStore` handles v2 parse → v1 migration → empty.
 - **`tables.ts`** — Table tracking with `TableLayout`. `createTableLayout(count)`, `seatCustomer`, `unseatCustomer`, `emptyTableIds`. Randomness stays outside domain.
+- **`layout.ts`** — Pure layout constraint primitives. Types: `Rect`, `Point`, `Anchor`, `Inset`, `GridSpec`, `GridCell`, `StackSpec`, `StackItem`. Functions: `canvasRect`, `insetRect`, `anchorPoint`, `anchoredRect`, `gridCells`, `stackItems`. All UI positions derive from parent rects via these composable functions.
 - **`panel.ts`** — UI panel constraint resolution. `resolvePanel(spec, canvasW, canvasH)` → `ResolvedPanel`. Also exports `defaultPanelAppearance`.
 - **`items.ts`** — 74 item definitions: 28 raw ($1-3, no shelf life), 31 prepped (30-120s shelf life), 15 dishes (30-60s). O(1) lookup via `findItem`. Category type: `"raw" | "prepped" | "dish"`.
 - **`recipes.ts`** — 46 recipe steps with dependency chains. Methods: `"prep" | "cook" | "assemble"`. Core abstraction: `foldRecipeTree` catamorphism with dedup. Derived: `flattenRecipeChain`, `totalRawIngredients`, `totalRecipeTime`.
@@ -32,6 +33,7 @@ Pure functions bridging domain state → scene-renderable data. Zero Phaser impo
 - **`kitchen-vm.ts`** — `kitchenVM(inventory, restaurantType, unlockedCount, activeRecipe, now)` → recipe list with craftability, input have/need, active cooking progress.
 - **`day-end-vm.ts`** — `dayEndVM(phase, day, wallet, restaurantType, currentUnlocked)` → earnings summary + dish unlock decision (`DishUnlockVM`).
 - **`restaurant-vm.ts`** — `restaurantVM(phase, inventory, restaurantType, unlockedCount)` → table statuses with tints/patience + action prompts (waiting/taking_order/cooking/serving).
+- **`scene-layout.ts`** — Centralized layout presets derived from `layout.ts` primitives. Exports named positions/regions for all scenes: `canvas`, `gameplayPanel`, `timerBar`, `skipButtonPos`, `coinHudPos`, `groceryGrid()`, `recipeRegion`, `recipeStack()`, `kitchenInvRegion`, `tablePositions()`, `sidebarAnchor`, `hintRegion`, `notificationPos`, `menuStack()`. All magic numbers live here; scenes import instead of hardcoding.
 
 ## Testing
 
